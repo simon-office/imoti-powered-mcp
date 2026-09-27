@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { titleCase } from "../src/titleCase.js";
+import { titleCase } from "../packages/shared/src/titleCase.js";
 
 test("titleCase capitalizes first letter of each word", () => {
   assert.equal(titleCase("hello world"), "Hello World");
@@ -24,4 +24,10 @@ test("titleCase handles single word", () => {
 
 test("titleCase handles mixed case single word", () => {
   assert.equal(titleCase("hELLO"), "Hello");
+});
+
+test("titleCase preserves all-caps words", () => {
+  assert.equal(titleCase("NASA launch"), "NASA Launch");
+  assert.equal(titleCase("hello NASA world"), "Hello NASA World");
+  assert.equal(titleCase("API JSON XML"), "API JSON XML");
 });
