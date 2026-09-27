@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseDuration } from "../src/parseDuration.js";
+import { parseDuration } from "../packages/shared/src/parseDuration.js";
 
 test("parseDuration returns seconds for seconds input", () => {
   assert.equal(parseDuration("45s"), 45);
@@ -28,4 +28,8 @@ test("parseDuration throws RangeError for empty string", () => {
 
 test("parseDuration throws RangeError for unknown unit", () => {
   assert.throws(() => parseDuration("5x"), RangeError);
+});
+
+test("parseDuration throws RangeError for text before first unit", () => {
+  assert.throws(() => parseDuration("x5s"), RangeError);
 });

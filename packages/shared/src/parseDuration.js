@@ -14,7 +14,7 @@ export function parseDuration(text) {
   let lastIndex = 0;
 
   while ((match = regex.exec(trimmed)) !== null) {
-    if (match.index !== lastIndex && lastIndex !== 0) {
+    if (match.index !== lastIndex) {
       const invalidPart = trimmed.slice(lastIndex, match.index).trim();
       if (invalidPart) {
         throw new RangeError(`Invalid duration part: ${invalidPart}`);
