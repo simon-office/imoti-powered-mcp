@@ -9,3 +9,7 @@ test("keyBy returns an empty object for an empty list", () => {
 test("keyBy maps each key to its first item", () => {
   assert.equal(keyBy([{ t: "a", n: 1 }, { t: "b", n: 2 }, { t: "b", n: 3 }], "t").b.n, 2);
 });
+
+test("keyBy keeps the first item", () => {
+  assert.deepEqual(keyBy([{ t: "a", n: 1 }], "t"), { a: { t: "a", n: 1 } });
+});
