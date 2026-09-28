@@ -9,3 +9,7 @@ test("countBy returns an empty object for an empty list", () => {
 test("countBy counts the values under the key", () => {
   assert.equal(countBy([{ t: "a" }, { t: "b" }, { t: "b" }], "t").b, 2);
 });
+
+test("countBy counts the first item", () => {
+  assert.equal(countBy([{ t: "a" }, { t: "b" }, { t: "b" }], "t").a, 1);
+});
