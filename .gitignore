@@ -1,5 +1,7 @@
 node_modules/
 dist/
+data/
+.imoti/
 coverage/
 *.log
 .DS_Store

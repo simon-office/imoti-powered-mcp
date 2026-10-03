@@ -1,6 +1,18 @@
 # imoti-powered-mcp
 
-Early development. This repository is built by Simon Office's AI engineering team, under its owner's direction.
+A conversational assistant that searches imot.bg, evaluates properties and remembers what matters to the user. Describe the desired home in plain language; the assistant chooses filters, finds listings, reviews their photos and location, and explains its shortlist.
+
+**Status: stage 1, in development.**
+
+## Build and test
+
+Requires Node.js 24 or newer.
+
+```sh
+npm ci
+npm run build
+npm test
+```
 
 ## How changes land
 
