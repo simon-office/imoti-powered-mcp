@@ -104,6 +104,54 @@ test('observations update latest normalized listing values and observation times
   }
 });
 
+test('duplicate observation replays cannot mutate the listing snapshot', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  let storage = openStorage(path);
+  try {
+    const observation = { listingId: 'site-replay', observedAt: '2026-07-01T00:00:00.000Z', sourceUrl: 'https://example.invalid/replay', raw: { price: '100' }, normalized: { title: 'Original', price: 100, propertyKey: 'original-property' } };
+    storage.recordObservation(observation);
+    const listing = storage.getListing('site-replay');
+    storage.recordObservation({ ...observation, raw: { price: '50' }, normalized: { title: 'Discarded replay', price: 50, propertyKey: 'different-property' } });
+    assert.deepEqual(storage.getListing('site-replay'), listing);
+    assert.deepEqual(storage.listObservations('site-replay'), [observation]);
+    storage.close();
+    storage = openStorage(path);
+    assert.deepEqual(storage.getListing('site-replay'), listing);
+    assert.deepEqual(storage.listObservations('site-replay'), [observation]);
+    const distinctObservation = { ...observation, sourceUrl: 'https://example.invalid/distinct', normalized: { title: 'Distinct source', price: 90 } };
+    storage.recordObservation(distinctObservation);
+    assert.equal(storage.getListing('site-replay').price, 90);
+    assert.deepEqual(storage.listObservations('site-replay'), [observation, distinctObservation]);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failed observation write leaves no listing changes or partial history', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    storage.upsertListing({ id: 'site-failed-write', title: 'Original', price: 100 }, '2026-07-01T00:00:00.000Z');
+    const listing = storage.getListing('site-failed-write');
+    const observation = { listingId: 'site-failed-write', observedAt: '2026-07-02T00:00:00.000Z', sourceUrl: 'https://example.invalid/failed-write', raw: { unsupported: 1n }, normalized: { title: 'Unstored', price: 50 } };
+    assert.throws(() => storage.recordObservation(observation), /BigInt/);
+    assert.deepEqual(storage.getListing('site-failed-write'), listing);
+    assert.deepEqual(storage.listObservations('site-failed-write'), []);
+    assert.throws(() => storage.recordObservation({ ...observation, listingId: 'site-invalid-location', raw: {}, normalized: { location: { precision: 'city' } } }), /Invalid location precision/);
+    assert.equal(storage.getListing('site-invalid-location'), undefined);
+    assert.deepEqual(storage.listObservations('site-invalid-location'), []);
+    const valid = { ...observation, raw: { price: '50' } };
+    storage.recordObservation(valid);
+    assert.equal(storage.getListing('site-failed-write').price, 50);
+    assert.deepEqual(storage.listObservations('site-failed-write'), [valid]);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('opening a newer schema fails without modifying its schema or version', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
   const path = join(dir, 'imoti.db');

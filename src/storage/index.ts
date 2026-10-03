@@ -112,12 +112,23 @@ export function openStorage(path?: string): Storage {
       return row ? JSON.parse(row.normalized_json) as Listing : undefined;
     },
     recordObservation(observation) {
-      const current = this.getListing(observation.listingId);
-      const normalized = (observation.normalized && typeof observation.normalized === 'object') ? observation.normalized as Record<string, unknown> : {};
-      this.upsertListing({ ...normalized, ...(normalized.propertyKey == null && current?.propertyKey !== undefined ? { propertyKey: current.propertyKey } : {}), id: observation.listingId }, observation.observedAt);
-      db.prepare(`INSERT OR IGNORE INTO observations(listing_id, observed_at, source_url, raw_json, normalized_json)
-        VALUES (?, ?, ?, ?, ?)`)
-        .run(observation.listingId, observation.observedAt, observation.sourceUrl, JSON.stringify(observation.raw), JSON.stringify(observation.normalized));
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        // A first observation creates its listing below, before commit checks the FK.
+        db.exec('PRAGMA defer_foreign_keys = ON');
+        const inserted = db.prepare(`INSERT INTO observations(listing_id, observed_at, source_url, raw_json, normalized_json)
+          VALUES (?, ?, ?, ?, ?) ON CONFLICT(listing_id, observed_at, source_url) DO NOTHING RETURNING id`)
+          .get(observation.listingId, observation.observedAt, observation.sourceUrl, JSON.stringify(observation.raw), JSON.stringify(observation.normalized));
+        if (inserted) {
+          const current = this.getListing(observation.listingId);
+          const normalized = (observation.normalized && typeof observation.normalized === 'object') ? observation.normalized as Record<string, unknown> : {};
+          this.upsertListing({ ...normalized, ...(normalized.propertyKey == null && current?.propertyKey !== undefined ? { propertyKey: current.propertyKey } : {}), id: observation.listingId }, observation.observedAt);
+        }
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     },
     listObservations(listingId) {
       const rows = db.prepare('SELECT listing_id, observed_at, source_url, raw_json, normalized_json FROM observations WHERE listing_id = ? ORDER BY observed_at, id').all(listingId) as Array<Record<string, string>>;
