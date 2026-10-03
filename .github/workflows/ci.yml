@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Nothing to test yet
+        if: hashFiles('package.json') == ''
+        run: echo "There is no package.json yet, so there is nothing to build or test."
+      - uses: actions/setup-node@v7
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: lts/*
+      - name: Install
+        if: hashFiles('package.json') != ''
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "::error::Commit package-lock.json: CI installs exactly what it lists (npm ci)."
+            exit 1
+          fi
+          npm ci
+      - name: Build
+        if: hashFiles('package.json') != ''
+        run: npm run build --if-present
+      - name: Test
+        if: hashFiles('package.json') != ''
+        run: npm test
