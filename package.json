@@ -1,0 +1,17 @@
+{
+  "name": "imoti-powered-mcp",
+  "version": "0.1.0",
+  "description": "A conversational assistant for Bulgarian property listings",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.0"
+  }
+}
