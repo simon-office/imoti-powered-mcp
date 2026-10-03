@@ -20,8 +20,8 @@ test('storage migrates an empty file and persists listings, observations, search
     assert.deepEqual(storage.listObservations('site-1'), [observation]);
     storage.saveSearch({ id: 's1', criteria: { city: 'Sofia' }, createdAt: '2026-01-02T00:00:00.000Z' });
     assert.deepEqual(storage.listSearches(), [{ id: 's1', criteria: { city: 'Sofia' }, createdAt: '2026-01-02T00:00:00.000Z' }]);
-    storage.addNote({ id: 'n1', listingId: 'site-1', text: 'Ask about heating', createdAt: '2026-01-02T00:00:00.000Z' });
-    assert.deepEqual(storage.listNotes('site-1'), [{ id: 'n1', listingId: 'site-1', text: 'Ask about heating', createdAt: '2026-01-02T00:00:00.000Z' }]);
+    storage.addNote({ id: 'n1', listingId: 'site-1', kind: 'note', text: 'Ask about heating', createdAt: '2026-01-02T00:00:00.000Z' });
+    assert.deepEqual(storage.listNotes('site-1'), [{ id: 'n1', listingId: 'site-1', kind: 'note', text: 'Ask about heating', createdAt: '2026-01-02T00:00:00.000Z' }]);
     storage.watch('site-1');
     storage.watch('site-1');
     assert.deepEqual(storage.listWatched(), ['site-1']);
@@ -167,6 +167,82 @@ test('schema version zero upgrades through the ordered migration to version one'
     try { assert.equal(migrated.prepare('SELECT version FROM schema_version').get().version, 1); }
     finally { migrated.close(); }
   } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a null observation property key preserves known identity without changing the snapshot', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  const storage = openStorage(path);
+  try {
+    storage.upsertListing({ id: 'site-null-key', propertyKey: 'known-property' }, '2026-06-01T00:00:00.000Z');
+    const observation = { listingId: 'site-null-key', observedAt: '2026-06-02T00:00:00.000Z', sourceUrl: 'https://example.invalid/null-key', raw: {}, normalized: { propertyKey: null, price: 80 } };
+    storage.recordObservation(observation);
+    assert.equal(storage.getListing('site-null-key').propertyKey, 'known-property');
+    assert.equal(storage.getListing('site-null-key').price, 80);
+    assert.deepEqual(storage.listObservations('site-null-key'), [observation]);
+    const db = new DatabaseSync(path);
+    try {
+      assert.equal(db.prepare('SELECT property_key FROM listings WHERE id = ?').get('site-null-key').property_key, 'known-property');
+    } finally { db.close(); }
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('notes reject missing and unsupported kinds before writing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    storage.upsertListing({ id: 'site-notes' });
+    const note = { id: 'invalid-note', listingId: 'site-notes', text: 'Fake note', createdAt: '2026-06-01T00:00:00.000Z' };
+    for (const kind of [undefined, null, '', 'favorite', 'unsupported']) {
+      assert.throws(() => storage.addNote({ ...note, kind }), /Invalid note kind/);
+    }
+    assert.deepEqual(storage.listNotes('site-notes'), []);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('legacy untyped notes are read as plain notes without losing their values', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  const storage = openStorage(path);
+  try {
+    storage.upsertListing({ id: 'legacy-listing' });
+    const legacy = { id: 'legacy-note', listingId: 'legacy-listing', text: 'Invented old note', createdAt: '2026-06-01T00:00:00.000Z', extra: { preserved: true } };
+    const db = new DatabaseSync(path);
+    try {
+      db.prepare('INSERT INTO notes(id, listing_id, note_json) VALUES (?, ?, ?)').run(legacy.id, legacy.listingId, JSON.stringify(legacy));
+    } finally { db.close(); }
+    assert.deepEqual(storage.listNotes('legacy-listing'), [{ ...legacy, kind: 'note' }]);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('all supported note kinds persist across reopen and equivalent writes do not duplicate notes', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  let storage = openStorage(path);
+  try {
+    storage.upsertListing({ id: 'site-note-kinds' });
+    const notes = ['favourite', 'rejected', 'viewing', 'note'].map(kind => ({ id: `note-${kind}`, listingId: 'site-note-kinds', kind, text: `Invented ${kind}`, createdAt: '2026-06-01T00:00:00.000Z' }));
+    for (const note of notes) {
+      storage.addNote(note);
+      storage.addNote(note);
+    }
+    storage.close();
+    storage = openStorage(path);
+    assert.deepEqual(storage.listNotes('site-note-kinds'), notes);
+    assert.deepEqual(storage.listNotes('another-listing'), []);
+  } finally {
+    storage.close();
     await rm(dir, { recursive: true, force: true });
   }
 });

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 export type LocationPrecision = 'exact' | 'street' | 'neighbourhood' | 'unknown';
+export type NoteKind = 'favourite' | 'rejected' | 'viewing' | 'note';
 export interface Listing {
   id: string;
   propertyKey?: string | null;
@@ -20,7 +21,7 @@ export interface Observation {
   normalized: unknown;
 }
 export interface SavedSearch { id: string; criteria: unknown; createdAt: string; [key: string]: unknown }
-export interface Note { id: string; listingId: string; text: string; createdAt: string; [key: string]: unknown }
+export interface Note { id: string; listingId: string; kind: NoteKind; text: string; createdAt: string; [key: string]: unknown }
 export interface Storage {
   upsertListing(listing: Listing, observedAt?: string): void;
   getListing(id: string): Listing | undefined;
@@ -37,6 +38,7 @@ export interface Storage {
 }
 
 const precisionValues = new Set<LocationPrecision>(['exact', 'street', 'neighbourhood', 'unknown']);
+const noteKindValues = new Set<NoteKind>(['favourite', 'rejected', 'viewing', 'note']);
 
 export function openStorage(path?: string): Storage {
   const dataDir = process.env.IMOTI_DATA_DIR || join(homedir(), '.imoti-powered-mcp');
@@ -112,7 +114,7 @@ export function openStorage(path?: string): Storage {
     recordObservation(observation) {
       const current = this.getListing(observation.listingId);
       const normalized = (observation.normalized && typeof observation.normalized === 'object') ? observation.normalized as Record<string, unknown> : {};
-      this.upsertListing({ ...normalized, ...(normalized.propertyKey === undefined && current?.propertyKey !== undefined ? { propertyKey: current.propertyKey } : {}), id: observation.listingId }, observation.observedAt);
+      this.upsertListing({ ...normalized, ...(normalized.propertyKey == null && current?.propertyKey !== undefined ? { propertyKey: current.propertyKey } : {}), id: observation.listingId }, observation.observedAt);
       db.prepare(`INSERT OR IGNORE INTO observations(listing_id, observed_at, source_url, raw_json, normalized_json)
         VALUES (?, ?, ?, ?, ?)`)
         .run(observation.listingId, observation.observedAt, observation.sourceUrl, JSON.stringify(observation.raw), JSON.stringify(observation.normalized));
@@ -123,8 +125,17 @@ export function openStorage(path?: string): Storage {
     },
     saveSearch(search) { db.prepare('INSERT INTO searches(id, search_json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET search_json=excluded.search_json').run(search.id, JSON.stringify(search)); },
     listSearches() { return (db.prepare('SELECT search_json FROM searches ORDER BY rowid').all() as Array<{ search_json: string }>).map(row => JSON.parse(row.search_json) as SavedSearch); },
-    addNote(note) { db.prepare('INSERT OR IGNORE INTO notes(id, listing_id, note_json) VALUES (?, ?, ?)').run(note.id, note.listingId, JSON.stringify(note)); },
-    listNotes(listingId) { return (db.prepare('SELECT note_json FROM notes WHERE listing_id = ? ORDER BY rowid').all(listingId) as Array<{ note_json: string }>).map(row => JSON.parse(row.note_json) as Note); },
+    addNote(note) {
+      if (!noteKindValues.has(note.kind)) throw new TypeError('Invalid note kind');
+      db.prepare('INSERT OR IGNORE INTO notes(id, listing_id, note_json) VALUES (?, ?, ?)').run(note.id, note.listingId, JSON.stringify(note));
+    },
+    listNotes(listingId) {
+      return (db.prepare('SELECT note_json FROM notes WHERE listing_id = ? ORDER BY rowid').all(listingId) as Array<{ note_json: string }>).map(row => {
+        const note = JSON.parse(row.note_json) as Note;
+        // Version-one notes had no kind; retain them as ordinary free-text notes.
+        return { ...note, kind: note.kind ?? 'note' };
+      });
+    },
     watch(listingId) { db.prepare('INSERT OR IGNORE INTO watchlist(listing_id) VALUES (?)').run(listingId); },
     unwatch(listingId) { db.prepare('DELETE FROM watchlist WHERE listing_id = ?').run(listingId); },
     listWatched() { return (db.prepare('SELECT listing_id FROM watchlist ORDER BY rowid').all() as Array<{ listing_id: string }>).map(row => row.listing_id); },
