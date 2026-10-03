@@ -123,3 +123,50 @@ test('opening a newer schema fails without modifying its schema or version', asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('observations keep the authoritative listing id and existing property key', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    storage.upsertListing({ id: 'site-authoritative', propertyKey: 'property-known', title: 'Initial' }, '2026-04-01T00:00:00.000Z');
+    storage.recordObservation({ listingId: 'site-authoritative', observedAt: '2026-04-02T00:00:00.000Z', sourceUrl: 'https://example.invalid/id', raw: {}, normalized: { id: 'conflicting-id', title: 'Updated' } });
+    assert.equal(storage.getListing('site-authoritative').id, 'site-authoritative');
+    assert.equal(storage.getListing('site-authoritative').propertyKey, 'property-known');
+    assert.equal(storage.getListing('conflicting-id'), undefined);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('older observations do not regress latest listing values or timestamps', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    storage.recordObservation({ listingId: 'site-stale', observedAt: '2026-05-02T00:00:00.000Z', sourceUrl: 'https://example.invalid/new', raw: {}, normalized: { title: 'New', price: 90 } });
+    storage.recordObservation({ listingId: 'site-stale', observedAt: '2026-05-01T00:00:00.000Z', sourceUrl: 'https://example.invalid/old', raw: {}, normalized: { title: 'Old', price: 100 } });
+    assert.deepEqual(storage.getListing('site-stale'), { id: 'site-stale', title: 'New', price: 90, firstObservedAt: '2026-05-02T00:00:00.000Z', lastObservedAt: '2026-05-02T00:00:00.000Z' });
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('schema version zero upgrades through the ordered migration to version one', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  const db = new DatabaseSync(path);
+  db.exec('CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES (0);');
+  db.close();
+  try {
+    const storage = openStorage(path);
+    storage.upsertListing({ id: 'after-migration' });
+    assert.equal(storage.getListing('after-migration').id, 'after-migration');
+    storage.close();
+    const migrated = new DatabaseSync(path);
+    try { assert.equal(migrated.prepare('SELECT version FROM schema_version').get().version, 1); }
+    finally { migrated.close(); }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

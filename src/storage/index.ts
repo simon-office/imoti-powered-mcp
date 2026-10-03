@@ -45,40 +45,59 @@ export function openStorage(path?: string): Storage {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   const existingVersionTable = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'").get();
+  let version = 0;
   if (existingVersionTable) {
     const existingVersion = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number } | undefined;
-    if (existingVersion && existingVersion.version > 1) {
+    version = existingVersion?.version ?? 0;
+    if (version > 1) {
       db.close();
-      throw new Error(`Database schema version ${existingVersion.version} is newer than supported version 1`);
+      throw new Error(`Database schema version ${version} is newer than supported version 1`);
     }
+  } else {
+    db.exec('CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version VALUES (0);');
   }
-  db.exec(`PRAGMA foreign_keys = ON;
-    CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS listings (
+  const migrations: Array<{ version: number; sql: string }> = [{ version: 1, sql: `
+    CREATE TABLE listings (
       id TEXT PRIMARY KEY, property_key TEXT, normalized_json TEXT NOT NULL,
       first_observed_at TEXT NOT NULL, last_observed_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS observations (
+    CREATE TABLE observations (
       id INTEGER PRIMARY KEY AUTOINCREMENT, listing_id TEXT NOT NULL REFERENCES listings(id),
       observed_at TEXT NOT NULL, source_url TEXT NOT NULL, raw_json TEXT NOT NULL,
       normalized_json TEXT NOT NULL, UNIQUE(listing_id, observed_at, source_url)
     );
-    CREATE TABLE IF NOT EXISTS searches (id TEXT PRIMARY KEY, search_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, listing_id TEXT NOT NULL REFERENCES listings(id), note_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS watchlist (listing_id TEXT PRIMARY KEY);
-    CREATE TABLE IF NOT EXISTS events (
+    CREATE TABLE searches (id TEXT PRIMARY KEY, search_json TEXT NOT NULL);
+    CREATE TABLE notes (id TEXT PRIMARY KEY, listing_id TEXT NOT NULL REFERENCES listings(id), note_json TEXT NOT NULL);
+    CREATE TABLE watchlist (listing_id TEXT PRIMARY KEY);
+    CREATE TABLE events (
       id INTEGER PRIMARY KEY AUTOINCREMENT, listing_id TEXT NOT NULL REFERENCES listings(id),
       kind TEXT NOT NULL CHECK(kind IN ('new_match','price_change','edited','disappeared')),
       occurred_at TEXT NOT NULL, event_json TEXT NOT NULL
-    );`);
-  if (!db.prepare('SELECT version FROM schema_version LIMIT 1').get()) {
-    db.prepare('INSERT INTO schema_version(version) VALUES (1)').run();
+    );` }];
+  db.exec('PRAGMA foreign_keys = ON');
+  try {
+    for (const migration of migrations) {
+      if (migration.version <= version) continue;
+      db.exec('BEGIN');
+      try {
+        db.exec(migration.sql);
+        db.prepare('UPDATE schema_version SET version = ?').run(migration.version);
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    }
+  } catch (error) {
+    db.close();
+    throw error;
   }
   return {
     upsertListing(listing, observedAt = new Date().toISOString()) {
       if (!listing.id) throw new TypeError('listing.id is required');
       if (listing.location && !precisionValues.has(listing.location.precision)) throw new TypeError('Invalid location precision');
-      const previous = db.prepare('SELECT first_observed_at FROM listings WHERE id = ?').get(listing.id) as { first_observed_at: string } | undefined;
+      const previous = db.prepare('SELECT first_observed_at, last_observed_at, normalized_json FROM listings WHERE id = ?').get(listing.id) as { first_observed_at: string; last_observed_at: string; normalized_json: string } | undefined;
+      if (previous && observedAt < previous.last_observed_at) return;
       const first = previous?.first_observed_at ?? listing.firstObservedAt ?? observedAt;
       const current = { ...listing, firstObservedAt: first, lastObservedAt: observedAt };
       db.prepare(`INSERT INTO listings(id, property_key, normalized_json, first_observed_at, last_observed_at)
@@ -91,7 +110,9 @@ export function openStorage(path?: string): Storage {
       return row ? JSON.parse(row.normalized_json) as Listing : undefined;
     },
     recordObservation(observation) {
-      this.upsertListing({ id: observation.listingId, ...((observation.normalized && typeof observation.normalized === 'object') ? observation.normalized as object : {}) }, observation.observedAt);
+      const current = this.getListing(observation.listingId);
+      const normalized = (observation.normalized && typeof observation.normalized === 'object') ? observation.normalized as Record<string, unknown> : {};
+      this.upsertListing({ ...normalized, ...(normalized.propertyKey === undefined && current?.propertyKey !== undefined ? { propertyKey: current.propertyKey } : {}), id: observation.listingId }, observation.observedAt);
       db.prepare(`INSERT OR IGNORE INTO observations(listing_id, observed_at, source_url, raw_json, normalized_json)
         VALUES (?, ?, ?, ?, ?)`)
         .run(observation.listingId, observation.observedAt, observation.sourceUrl, JSON.stringify(observation.raw), JSON.stringify(observation.normalized));
