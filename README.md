@@ -14,6 +14,21 @@ npm run build
 npm test
 ```
 
+## Load in Claude Code
+
+Build the server, then load this checkout as a plugin:
+
+```sh
+npm run build
+claude --plugin-dir <repository>
+```
+
+To inspect the MCP server manually, run:
+
+```sh
+npx @modelcontextprotocol/inspector node dist/main.js
+```
+
 ## How changes land
 
 Every change arrives as a pull request. It is reviewed and tested, and CI must pass before it is merged into `main`.

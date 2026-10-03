@@ -1,0 +1,4 @@
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { createServer } from './server.js';
+
+void serveStdio(() => createServer());
