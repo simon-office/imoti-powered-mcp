@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Secrets and local data never go into the repository: environment files, databases, browser profiles, test output.
+.env
+.env.*
+*.sqlite
+*.sqlite3
+*.db
+.playwright/
+playwright-report/
+test-results/
