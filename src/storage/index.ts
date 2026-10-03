@@ -44,6 +44,14 @@ export function openStorage(path?: string): Storage {
   // DatabaseSync opens synchronously; mkdirSync guarantees its parent exists.
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
+  const existingVersionTable = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'").get();
+  if (existingVersionTable) {
+    const existingVersion = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number } | undefined;
+    if (existingVersion && existingVersion.version > 1) {
+      db.close();
+      throw new Error(`Database schema version ${existingVersion.version} is newer than supported version 1`);
+    }
+  }
   db.exec(`PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS listings (
@@ -57,7 +65,7 @@ export function openStorage(path?: string): Storage {
     );
     CREATE TABLE IF NOT EXISTS searches (id TEXT PRIMARY KEY, search_json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, listing_id TEXT NOT NULL REFERENCES listings(id), note_json TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS watchlist (listing_id TEXT PRIMARY KEY REFERENCES listings(id));
+    CREATE TABLE IF NOT EXISTS watchlist (listing_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT, listing_id TEXT NOT NULL REFERENCES listings(id),
       kind TEXT NOT NULL CHECK(kind IN ('new_match','price_change','edited','disappeared')),
@@ -66,12 +74,6 @@ export function openStorage(path?: string): Storage {
   if (!db.prepare('SELECT version FROM schema_version LIMIT 1').get()) {
     db.prepare('INSERT INTO schema_version(version) VALUES (1)').run();
   }
-  const schemaVersion = (db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number }).version;
-  if (schemaVersion > 1) {
-    db.close();
-    throw new Error(`Database schema version ${schemaVersion} is newer than supported version 1`);
-  }
-
   return {
     upsertListing(listing, observedAt = new Date().toISOString()) {
       if (!listing.id) throw new TypeError('listing.id is required');
@@ -102,7 +104,7 @@ export function openStorage(path?: string): Storage {
     listSearches() { return (db.prepare('SELECT search_json FROM searches ORDER BY rowid').all() as Array<{ search_json: string }>).map(row => JSON.parse(row.search_json) as SavedSearch); },
     addNote(note) { db.prepare('INSERT OR IGNORE INTO notes(id, listing_id, note_json) VALUES (?, ?, ?)').run(note.id, note.listingId, JSON.stringify(note)); },
     listNotes(listingId) { return (db.prepare('SELECT note_json FROM notes WHERE listing_id = ? ORDER BY rowid').all(listingId) as Array<{ note_json: string }>).map(row => JSON.parse(row.note_json) as Note); },
-    watch(listingId) { db.prepare('INSERT OR IGNORE INTO listings(id, property_key, normalized_json, first_observed_at, last_observed_at) VALUES (?, NULL, ?, ?, ?)').run(listingId, JSON.stringify({ id: listingId }), '', ''); db.prepare('INSERT OR IGNORE INTO watchlist(listing_id) VALUES (?)').run(listingId); },
+    watch(listingId) { db.prepare('INSERT OR IGNORE INTO watchlist(listing_id) VALUES (?)').run(listingId); },
     unwatch(listingId) { db.prepare('DELETE FROM watchlist WHERE listing_id = ?').run(listingId); },
     listWatched() { return (db.prepare('SELECT listing_id FROM watchlist ORDER BY rowid').all() as Array<{ listing_id: string }>).map(row => row.listing_id); },
     close() { db.close(); },

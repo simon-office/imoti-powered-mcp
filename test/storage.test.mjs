@@ -69,3 +69,57 @@ test('site listing ids remain distinct when they share a physical property key a
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('watching an unknown listing does not create placeholder observation timestamps', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    storage.watch('site-later');
+    assert.equal(storage.getListing('site-later'), undefined);
+    storage.upsertListing({ id: 'site-later', title: 'Real listing' }, '2026-02-01T00:00:00.000Z');
+    assert.deepEqual(storage.getListing('site-later'), {
+      id: 'site-later', title: 'Real listing',
+      firstObservedAt: '2026-02-01T00:00:00.000Z', lastObservedAt: '2026-02-01T00:00:00.000Z',
+    });
+    assert.deepEqual(storage.listWatched(), ['site-later']);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('observations update latest normalized listing values and observation timestamps', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    storage.recordObservation({ listingId: 'site-obs', observedAt: '2026-03-01T00:00:00.000Z', sourceUrl: 'https://example.invalid/one', raw: { price: '100' }, normalized: { title: 'First', price: 100 } });
+    storage.recordObservation({ listingId: 'site-obs', observedAt: '2026-03-02T00:00:00.000Z', sourceUrl: 'https://example.invalid/two', raw: { price: '90' }, normalized: { title: 'Updated', price: 90 } });
+    assert.deepEqual(storage.getListing('site-obs'), {
+      id: 'site-obs', title: 'Updated', price: 90,
+      firstObservedAt: '2026-03-01T00:00:00.000Z', lastObservedAt: '2026-03-02T00:00:00.000Z',
+    });
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('opening a newer schema fails without modifying its schema or version', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  const db = new DatabaseSync(path);
+  db.exec('CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES (2);');
+  db.close();
+  try {
+    assert.throws(() => openStorage(path), /newer than supported/);
+    const reopened = new DatabaseSync(path);
+    try {
+      assert.equal(reopened.prepare('SELECT version FROM schema_version').get().version, 2);
+      assert.deepEqual(reopened.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map(row => row.name), ['schema_version']);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
