@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/server';
+import { homedir } from 'node:os';
 import * as z from 'zod/v4';
 import { VERSION } from './version.js';
 
@@ -9,7 +10,7 @@ export interface ServerDependencies {
 }
 
 export function createServer(deps: ServerDependencies = {}): McpServer {
-  const dataDir = deps.dataDir ?? process.env.IMOTI_DATA_DIR ?? `${process.env.HOME ?? '~'}/.imoti-powered-mcp`;
+  const dataDir = deps.dataDir ?? process.env.IMOTI_DATA_DIR ?? `${homedir()}/.imoti-powered-mcp`;
   const server = new McpServer({ name: 'imoti', version: VERSION });
   const outputSchema = {
     name: z.string(),

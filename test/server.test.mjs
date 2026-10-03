@@ -46,6 +46,28 @@ test('server_info defaults data directory to the user home', async () => {
   }
 });
 
+test('server_info resolves the user home when HOME is unset', async () => {
+  const previousHome = process.env.HOME;
+  const previousDataDir = process.env.IMOTI_DATA_DIR;
+  delete process.env.HOME;
+  delete process.env.IMOTI_DATA_DIR;
+  const server = createServer();
+  const client = new Client({ name: 'test-client', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  try {
+    const result = await client.callTool({ name: 'server_info' });
+    assert.equal(result.structuredContent.dataDir, `${homedir()}/.imoti-powered-mcp`);
+  } finally {
+    await client.close();
+    await server.close();
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousDataDir === undefined) delete process.env.IMOTI_DATA_DIR;
+    else process.env.IMOTI_DATA_DIR = previousDataDir;
+  }
+});
+
 test('plugin manifests declare the package and stdio server', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const plugin = JSON.parse(await readFile(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8'));
