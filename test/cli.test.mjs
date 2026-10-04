@@ -21,6 +21,21 @@ test('search command prints verification and persists structured results from fi
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test('search supports rooms, max price, limit, and pages and prints seller kind and URL', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
+  try {
+    const result = run(['search', '--fixtures', new URL('./fixtures', import.meta.url).pathname, '--rooms', '2', '--max-price', '250000', '--limit', '10', '--pages', '2'], directory);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /seller kind.*url/i);
+    assert.match(result.stdout, /agency|private|unknown/i);
+    assert.match(result.stdout, /https?:/i);
+    const saved = JSON.parse(await readFile(join(directory, 'last-search.json'), 'utf8'));
+    assert.equal(saved.query.criteria.rooms.min, 2);
+    assert.equal(saved.query.criteria.priceMax, 250000);
+    assert.equal(saved.query.criteria.maxPages, 2);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('listing command prints a parsed fixture listing', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
   try {
@@ -45,6 +60,20 @@ test('fixture lookup failures return status 1 with a one-line error', async () =
     const result = run(['search', '--fixtures', emptyFixtures], join(directory, 'data'));
     assert.equal(result.status, 1);
     assert.equal(result.stderr.trim().split('\n').length, 1);
+    assert.doesNotMatch(result.stderr, / at .*\.js:/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('protective screen returns status 3 with visible-mode guidance', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
+  const protectiveFixtures = join(directory, 'fixtures');
+  await mkdir(protectiveFixtures);
+  await import('node:fs/promises').then(({ writeFile }) => writeFile(join(protectiveFixtures, 'search.html'), '<html><title>Just a moment</title><body>Cloudflare CAPTCHA</body></html>'));
+  try {
+    const result = run(['search', '--fixtures', protectiveFixtures], join(directory, 'data'));
+    assert.equal(result.status, 3);
+    assert.match(result.stderr, /protective screen/i);
+    assert.match(result.stderr, /--visible/);
     assert.doesNotMatch(result.stderr, / at .*\.js:/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

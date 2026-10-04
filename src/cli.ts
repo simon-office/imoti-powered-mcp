@@ -10,7 +10,7 @@ import { createServer } from './server.js';
 import { openStorage } from './storage/index.js';
 
 const usage = `Usage:
-  npm run search -- [--deal sale|rent] [--district NAME ...] [--type TYPE ...] [--price-min N] [--price-max N] [--area-min N] [--area-max N] [--fixtures DIR] [--visible]
+  npm run search -- [--deal sale|rent] [--district NAME ...] [--type TYPE ...] [--rooms N] [--max-price N] [--limit N] [--pages N] [--price-min N] [--price-max N] [--area-min N] [--area-max N] [--fixtures DIR] [--visible]
   npm run listing -- <ID|URL> [--refresh] [--fixtures DIR] [--visible]`;
 type Options = { fixtures?: string; visible: boolean; refresh: boolean };
 
@@ -20,7 +20,7 @@ function parse(argv: string[]) {
   const options: Options = { visible: false, refresh: false };
   const criteria: Record<string, unknown> = {};
   let target: string | undefined;
-  const numeric: Record<string, string> = { '--price-min': 'priceMin', '--price-max': 'priceMax', '--area-min': 'areaMin', '--area-max': 'areaMax' };
+  const numeric: Record<string, string> = { '--price-min': 'priceMin', '--price-max': 'priceMax', '--max-price': 'priceMax', '--area-min': 'areaMin', '--area-max': 'areaMax', '--limit': 'limit', '--pages': 'maxPages' };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--visible') options.visible = true;
@@ -32,6 +32,9 @@ function parse(argv: string[]) {
       const values = (criteria[key] as string[] | undefined) ?? [];
       values.push(args[++i]);
       criteria[key] = values;
+    } else if (arg === '--rooms' && args[i + 1] && Number.isInteger(Number(args[i + 1]))) {
+      const rooms = Number(args[++i]);
+      criteria.rooms = { min: rooms, max: rooms };
     } else if (numeric[arg] && args[i + 1] && Number.isFinite(Number(args[i + 1]))) criteria[numeric[arg]] = Number(args[++i]);
     else if (!arg.startsWith('--') && command === 'listing' && !target) target = arg;
     else throw new Error(`Invalid argument: ${arg}`);
@@ -47,7 +50,7 @@ async function fixtureAdapter(directory: string) {
   const mapping: Array<[RegExp, string]> = [];
   if (search) mapping.push([/\/obiavi\//, join(directory, search)]);
   if (listing) mapping.push([/\/obiava-/, join(directory, listing)]);
-  return new FixtureAdapter(mapping);
+  return new FixtureAdapter(mapping, { detectProtectiveScreen: true });
 }
 
 async function main() {
@@ -67,7 +70,7 @@ async function main() {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
     try {
       const result = parsed.command === 'search'
-        ? await client.callTool({ name: 'search_listings', arguments: { criteria: parsed.criteria } })
+        ? await client.callTool({ name: 'search_listings', arguments: { criteria: Object.fromEntries(Object.entries(parsed.criteria).filter(([key]) => key !== 'limit')), limit: parsed.criteria.limit } })
         : await client.callTool({ name: 'get_listing', arguments: /^https?:/.test(parsed.target!) ? { url: parsed.target, refresh: parsed.options.refresh } : { id: parsed.target, refresh: parsed.options.refresh } });
       if (result.isError) throw new Error(result.content?.filter(item => item.type === 'text').map(item => item.text).join(' ') ?? 'Command failed');
       const structured = result.structuredContent as Record<string, any>;
@@ -75,8 +78,8 @@ async function main() {
         await mkdir(dataDir, { recursive: true });
         await writeFile(join(dataDir, 'last-search.json'), `${JSON.stringify(structured, null, 2)}\n`);
         process.stdout.write(`Verification: ${structured.verification.ok ? 'passed' : 'mismatches found'}\n`);
-        process.stdout.write('ID | price | area | floor | district | title\n');
-        for (const item of structured.listings) process.stdout.write(`${item.id} | ${item.price?.amount ?? 'unknown'} | ${item.areaM2 ?? 'unknown'} | ${item.floor ?? 'unknown'} | ${item.location?.district ?? 'unknown'} | ${item.title ?? ''}\n`);
+        process.stdout.write('ID | price | area | floor | district | seller kind | URL\n');
+        for (const item of structured.listings) process.stdout.write(`${item.id} | ${item.price?.amount ?? 'unknown'} | ${item.areaM2 ?? 'unknown'} | ${item.floor ?? 'unknown'} | ${item.location?.district ?? 'unknown'} | ${item.seller?.kind ?? 'unknown'} | ${item.url ?? ''}\n`);
       } else process.stdout.write(`${JSON.stringify(structured.listing, null, 2)}\n`);
     } finally { await client.close(); await server.close(); storage.close(); }
   } catch (error) {
