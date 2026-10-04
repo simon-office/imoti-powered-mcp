@@ -48,6 +48,17 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
 
   if (deps.storage) {
     const { storage } = deps;
+    server.registerTool('get_changes', {
+      description: 'List persisted listing changes with a concise, neutral digest.',
+      inputSchema: { since: z.string().datetime({ offset: true }).optional(), limit: z.number().int().min(0).optional() },
+      outputSchema: z.object({ changes: z.array(z.object({ id: z.number(), listingId: z.string(), kind: z.enum(['new_match', 'price_change', 'edited', 'disappeared']), occurredAt: z.string(), data: z.unknown() })), digest: z.string() }),
+    }, async ({ since, limit }) => {
+      try {
+        const changes = storage.listChanges({ since, limit });
+        const digest = changes.length ? changes.map(event => `${event.listingId}: ${event.kind}`).join('; ') : 'No listing changes.';
+        return { structuredContent: { changes, digest }, content: [{ type: 'text' as const, text: digest }] };
+      } catch (error) { return toolError(error); }
+    });
     server.registerTool('save_note', {
       description: 'Save a timestamped note about a listing.',
       inputSchema: { listingId: z.string().min(1), kind: z.enum(['favourite', 'rejected', 'viewing', 'note']), text: z.string() },
@@ -86,6 +97,50 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
 
   if (deps.adapter && deps.storage) {
     const { adapter, storage } = deps;
+    server.registerTool('refresh_watched', {
+      description: 'Refresh saved searches and record observed listing changes.',
+      inputSchema: {},
+      outputSchema: z.object({ refreshedSearches: z.number(), changes: z.number() }),
+    }, async () => {
+      try {
+        let refreshedSearches = 0;
+        let changeCount = 0;
+        for (const saved of storage.listSearches()) {
+          const criteria = searchCriteriaSchema.parse(saved.criteria);
+          const built = buildSearchUrls(criteria);
+          const current = new Map<string, { listing: Listing; sourceUrl: string }>();
+          const prior = new Map<string, Listing>();
+          for (const observation of storage.listObservations().filter(item => built.urls.includes(item.sourceUrl))) {
+            const snapshot = storage.getListing(observation.listingId);
+            if (snapshot) prior.set(observation.listingId, snapshot);
+          }
+          // Each page must finish parsing before an absent listing can be considered no longer observed.
+          for (const url of built.urls) {
+            const page = await adapter.fetchPage(url);
+            for (const item of parseSearchResults(page.html, url).listings) {
+              if (!item.id || !item.url) continue;
+              const listing: Listing = { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' };
+              current.set(item.id, { listing, sourceUrl: url });
+            }
+          }
+          const observedAt = new Date().toISOString();
+          const latestChanges = new Map<string, string>();
+          for (const event of storage.listChanges()) latestChanges.set(event.listingId, event.kind);
+          for (const [id, { listing, sourceUrl }] of current) {
+            const previous = storage.getListing(id);
+            storage.recordObservation({ listingId: id, observedAt, sourceUrl, raw: listing, normalized: listing });
+            const priorSnapshot = previous ?? prior.get(id);
+            let kind: 'new_match' | 'price_change' | 'edited' | undefined;
+            if (!priorSnapshot || latestChanges.get(id) === 'disappeared') kind = 'new_match';
+            else if (!sameSnapshot(priorSnapshot, listing)) kind = !sameSnapshot({ id, price: priorSnapshot.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
+            if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorSnapshot?.price ?? null, to: listing.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
+          }
+          for (const [id] of prior) if (!current.has(id) && latestChanges.get(id) !== 'disappeared' && storage.recordChange({ listingId: id, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) { changeCount++; latestChanges.set(id, 'disappeared'); }
+          refreshedSearches++;
+        }
+        return { structuredContent: { refreshedSearches, changes: changeCount }, content: [{ type: 'text' as const, text: `Refreshed ${refreshedSearches} saved search${refreshedSearches === 1 ? '' : 'es'}; recorded ${changeCount} change${changeCount === 1 ? '' : 's'}.` }] };
+      } catch (error) { return toolError(error); }
+    });
     const searchOutput = z.object({
       query: z.object({ urls: z.array(z.string()), criteria: z.record(z.string(), z.unknown()) }),
       verification: z.object({ ok: z.boolean(), mismatches: z.array(z.record(z.string(), z.unknown())) }),
@@ -183,6 +238,17 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
 function isDetailObservation(sourceUrl: string): boolean {
   try { return /^\/obiava-[^/]+$/i.test(new URL(sourceUrl).pathname); }
   catch { return false; }
+}
+
+function sameSnapshot(previous: Listing, current: Listing): boolean {
+  const strip = (listing: Listing) => Object.fromEntries(Object.entries(listing).filter(([key]) => key !== 'firstObservedAt' && key !== 'lastObservedAt'));
+  return JSON.stringify(sortObject(strip(previous))) === JSON.stringify(sortObject(strip(current)));
+}
+
+function sortObject(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortObject);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sortObject(item)]));
+  return value;
 }
 
 function parseCanonicalListingUrl(value: string): { id: string; url: string } | undefined {

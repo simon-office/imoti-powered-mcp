@@ -29,7 +29,7 @@ export interface Storage {
   upsertListing(listing: Listing, observedAt?: string): void;
   getListing(id: string): Listing | undefined;
   recordObservation(observation: Observation): void;
-  listObservations(listingId: string): Observation[];
+  listObservations(listingId?: string): Observation[];
   recordChange(event: Omit<Event, 'id'>): boolean;
   listChanges(options?: { since?: string; limit?: number }): Event[];
   saveSearch(search: SavedSearch): void;
@@ -147,7 +147,9 @@ export function openStorage(path?: string): Storage {
       }
     },
     listObservations(listingId) {
-      const rows = db.prepare('SELECT listing_id, observed_at, source_url, raw_json, normalized_json FROM observations WHERE listing_id = ? ORDER BY observed_at, id').all(listingId) as Array<Record<string, string>>;
+      const rows = (listingId === undefined
+        ? db.prepare('SELECT listing_id, observed_at, source_url, raw_json, normalized_json FROM observations ORDER BY observed_at, id').all()
+        : db.prepare('SELECT listing_id, observed_at, source_url, raw_json, normalized_json FROM observations WHERE listing_id = ? ORDER BY observed_at, id').all(listingId)) as Array<Record<string, string>>;
       return rows.map(row => ({ listingId: row.listing_id, observedAt: row.observed_at, sourceUrl: row.source_url, raw: JSON.parse(row.raw_json), normalized: JSON.parse(row.normalized_json) }));
     },
     recordChange(event) {
