@@ -316,6 +316,10 @@ test('change events persist idempotently, round-trip, and filter by time and lim
     const event = { listingId: 'event-listing', kind: 'price_change', occurredAt: '2026-09-02T00:00:00.000Z', data: { from: 100, to: 90 } };
     assert.equal(storage.recordChange(event), true);
     assert.equal(storage.recordChange(event), false);
+    assert.throws(
+      () => storage.recordChange({ ...event, kind: 'disappeared', data: { status: 'sold' } }),
+      /Disappeared event data must indicate no longer observed/,
+    );
     assert.equal(storage.recordChange({ ...event, kind: 'disappeared', data: { status: 'no longer observed' } }), true);
     assert.deepEqual(storage.listChanges(), [
       { ...event, id: 1 },

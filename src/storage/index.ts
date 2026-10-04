@@ -152,6 +152,9 @@ export function openStorage(path?: string): Storage {
     },
     recordChange(event) {
       if (!eventKindValues.has(event.kind)) throw new TypeError('Invalid event kind');
+      if (event.kind === 'disappeared' && !isDeepStrictEqual(event.data, { status: 'no longer observed' })) {
+        throw new TypeError('Disappeared event data must indicate no longer observed');
+      }
       const dataJson = stableJson(event.data);
       db.exec('BEGIN IMMEDIATE');
       try {
