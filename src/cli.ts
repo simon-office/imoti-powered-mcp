@@ -11,12 +11,13 @@ import { openStorage } from './storage/index.js';
 
 const usage = `Usage:
   npm run search -- [--deal sale|rent] [--district NAME ...] [--type TYPE ...] [--rooms N] [--max-price N] [--limit N] [--pages N] [--price-min N] [--price-max N] [--area-min N] [--area-max N] [--fixtures DIR] [--visible]
-  npm run listing -- <ID|URL> [--refresh] [--fixtures DIR] [--visible]`;
+  npm run listing -- <ID|URL> [--refresh] [--fixtures DIR] [--visible]
+  npm run refresh -- [--fixtures DIR]`;
 type Options = { fixtures?: string; visible: boolean; refresh: boolean };
 
 function parse(argv: string[]) {
   const [command, ...args] = argv;
-  if (!['search', 'listing'].includes(command ?? '')) throw new Error('Choose search or listing');
+  if (!['search', 'listing', 'refresh'].includes(command ?? '')) throw new Error('Choose search, listing, or refresh');
   const options: Options = { visible: false, refresh: false };
   const criteria: Record<string, unknown> = {};
   let target: string | undefined;
@@ -40,6 +41,7 @@ function parse(argv: string[]) {
     else throw new Error(`Invalid argument: ${arg}`);
   }
   if (command === 'listing' && !target) throw new Error('Listing requires an id or URL');
+  if (command === 'refresh' && (options.visible || options.refresh || Object.keys(criteria).length || target)) throw new Error('Refresh accepts only --fixtures DIR');
   return { command: command!, target, options, criteria };
 }
 
@@ -71,7 +73,9 @@ async function main() {
     try {
       const result = parsed.command === 'search'
         ? await client.callTool({ name: 'search_listings', arguments: { criteria: Object.fromEntries(Object.entries(parsed.criteria).filter(([key]) => key !== 'limit')), limit: parsed.criteria.limit } })
-        : await client.callTool({ name: 'get_listing', arguments: /^https?:/.test(parsed.target!) ? { url: parsed.target, refresh: parsed.options.refresh } : { id: parsed.target, refresh: parsed.options.refresh } });
+        : parsed.command === 'listing'
+          ? await client.callTool({ name: 'get_listing', arguments: /^https?:/.test(parsed.target!) ? { url: parsed.target, refresh: parsed.options.refresh } : { id: parsed.target, refresh: parsed.options.refresh } })
+          : await client.callTool({ name: 'refresh_watched', arguments: {} });
       if (result.isError) throw new Error(result.content?.filter(item => item.type === 'text').map(item => item.text).join(' ') ?? 'Command failed');
       const structured = result.structuredContent as Record<string, any>;
       if (parsed.command === 'search') {
@@ -80,7 +84,8 @@ async function main() {
         process.stdout.write(`Verification: ${structured.verification.ok ? 'passed' : 'mismatches found'}\n`);
         process.stdout.write('ID | price | area | floor | district | seller kind | URL\n');
         for (const item of structured.listings) process.stdout.write(`${item.id} | ${item.price?.amount ?? 'unknown'} | ${item.areaM2 ?? 'unknown'} | ${item.floor ?? 'unknown'} | ${item.location?.district ?? 'unknown'} | ${item.seller?.kind ?? 'unknown'} | ${item.url ?? ''}\n`);
-      } else process.stdout.write(`${JSON.stringify(structured.listing, null, 2)}\n`);
+      } else if (parsed.command === 'listing') process.stdout.write(`${JSON.stringify(structured.listing, null, 2)}\n`);
+      else process.stdout.write(`Refreshed ${structured.refreshedSearches} saved search${structured.refreshedSearches === 1 ? '' : 'es'} and ${structured.refreshedListings} watched listing${structured.refreshedListings === 1 ? '' : 's'}; recorded ${structured.changes} change${structured.changes === 1 ? '' : 's'}.\n`);
     } finally { await client.close(); await server.close(); storage.close(); }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected error';

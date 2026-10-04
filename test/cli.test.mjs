@@ -9,6 +9,9 @@ const run = (args, dataDir) => spawnSync(process.execPath, ['--disable-warning=E
   encoding: 'utf8', env: { ...process.env, IMOTI_DATA_DIR: dataDir },
 });
 
+const saveWatchedSearch = (dataDir, criteria) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.saveSearch({ id: 'cli-test-search', criteria: ${JSON.stringify(criteria)}, createdAt: new Date().toISOString() }); storage.close();`], { encoding: 'utf8' });
+const saveWatchedListing = (dataDir, listingId) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.watch(${JSON.stringify(listingId)}); storage.close();`], { encoding: 'utf8' });
+
 test('search command prints verification and persists structured results from fixtures', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
   try {
@@ -76,5 +79,55 @@ test('protective screen returns status 3 with visible-mode guidance', async () =
     assert.match(result.stderr, /protective screen/i);
     assert.match(result.stderr, /--visible/);
     assert.doesNotMatch(result.stderr, / at .*\.js:/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh command uses saved searches, reports changes, and is idempotent', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-refresh-'));
+  const dataDir = join(directory, 'data');
+  const fixtures = new URL('./fixtures', import.meta.url).pathname;
+  try {
+    const setup = run(['search', '--fixtures', fixtures, '--district', 'Iztok'], dataDir);
+    assert.equal(setup.status, 0, setup.stderr);
+    const saved = JSON.parse(await readFile(join(dataDir, 'last-search.json'), 'utf8'));
+    assert.equal(saveWatchedSearch(dataDir, saved.query.criteria).status, 0);
+    const first = run(['refresh', '--fixtures', fixtures], dataDir);
+    assert.equal(first.status, 0, first.stderr);
+    assert.match(first.stdout, /Refreshed 1 saved search/);
+    const second = run(['refresh', '--fixtures', fixtures], dataDir);
+    assert.equal(second.status, 0, second.stderr);
+    assert.match(second.stdout, /recorded 0 changes/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh command fails non-zero when fixture lookup fails', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-refresh-'));
+  const emptyFixtures = join(directory, 'fixtures');
+  await mkdir(emptyFixtures);
+  try {
+    assert.equal(saveWatchedSearch(join(directory, 'data'), { deal: 'sale', city: 'Sofia', districts: ['Iztok'], propertyTypes: [], maxPages: 1 }).status, 0);
+    const result = run(['refresh', '--fixtures', emptyFixtures], join(directory, 'data'));
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /No fixture configured for/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh command fetches persisted watched listings without a saved search', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-watched-listing-'));
+  const dataDir = join(directory, 'data');
+  const listingId = '1c100000000000001';
+  try {
+    assert.equal(saveWatchedListing(dataDir, listingId).status, 0);
+    const result = run(['refresh', '--fixtures', new URL('./fixtures', import.meta.url).pathname], dataDir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /and 1 watched listing/i);
+    const eventCount = () => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); console.log(storage.listChanges().length); storage.close();`], { encoding: 'utf8' }).stdout.trim();
+    const eventsAfterFirstRefresh = eventCount();
+    const second = run(['refresh', '--fixtures', new URL('./fixtures', import.meta.url).pathname], dataDir);
+    assert.equal(second.status, 0, second.stderr);
+    assert.match(second.stdout, /and 1 watched listing.*recorded 0 changes/i);
+    assert.equal(eventCount(), eventsAfterFirstRefresh, 'unchanged watched listing fixtures must not add duplicate events');
+    const observations = spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); console.log(storage.listObservations(${JSON.stringify(listingId)}).filter(item => new URL(item.sourceUrl).pathname.startsWith('/obiava-')).length); storage.close();`], { encoding: 'utf8' });
+    assert.equal(observations.stdout.trim(), '2');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
