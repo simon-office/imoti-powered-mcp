@@ -33,6 +33,58 @@ test('storage migrates an empty file and persists listings, observations, search
   }
 });
 
+test('equivalent listing upserts leave persisted values and timestamps unchanged without a write', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  let storage = openStorage(path);
+  const db = new DatabaseSync(path);
+  try {
+    const listing = { id: 'site-equivalent', propertyKey: 'fake-property', title: 'Invented flat', price: 100, location: { precision: 'street', name: 'Imaginary Rd' }, features: ['lift', 'balcony'] };
+    storage.upsertListing(listing, '2026-08-01T00:00:00.000Z');
+    const snapshot = storage.getListing(listing.id);
+    const row = db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id);
+    db.exec(`CREATE TABLE listing_updates (listing_id TEXT);
+      CREATE TRIGGER track_listing_update AFTER UPDATE ON listings
+      BEGIN INSERT INTO listing_updates VALUES (NEW.id); END;`);
+    storage.upsertListing(listing, '2026-08-02T00:00:00.000Z');
+    assert.deepEqual(storage.getListing(listing.id), snapshot);
+    // Object key order and repository-managed timestamps are not listing changes.
+    storage.upsertListing({ ...snapshot, location: { name: 'Imaginary Rd', precision: 'street' }, firstObservedAt: 'ignored', lastObservedAt: 'ignored' }, '2026-08-03T00:00:00.000Z');
+    assert.deepEqual(db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id), row);
+    assert.deepEqual(db.prepare('SELECT * FROM listing_updates').all(), []);
+    storage.close();
+    storage = openStorage(path);
+    assert.deepEqual(storage.getListing(listing.id), snapshot);
+    // A real normalized-value change must still update the listing.
+    storage.upsertListing({ ...listing, features: ['balcony', 'lift'] }, '2026-08-04T00:00:00.000Z');
+    assert.deepEqual(storage.getListing(listing.id).features, ['balcony', 'lift']);
+    assert.equal(storage.getListing(listing.id).lastObservedAt, '2026-08-04T00:00:00.000Z');
+    assert.equal(storage.getListing(listing.id).firstObservedAt, snapshot.firstObservedAt);
+    assert.equal(db.prepare('SELECT count(*) AS count FROM listing_updates').get().count, 1);
+  } finally {
+    db.close();
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('later unchanged observations preserve the listing snapshot while retaining their history', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    const first = { listingId: 'site-unchanged', observedAt: '2026-08-01T00:00:00.000Z', sourceUrl: 'https://example.invalid/unchanged', raw: { price: '100' }, normalized: { title: 'Invented flat', price: 100 } };
+    storage.recordObservation(first);
+    const snapshot = storage.getListing(first.listingId);
+    const later = { ...first, observedAt: '2026-08-02T00:00:00.000Z', raw: { price: '100.00' }, normalized: { price: 100, title: 'Invented flat' } };
+    storage.recordObservation(later);
+    assert.deepEqual(storage.getListing(first.listingId), snapshot);
+    assert.deepEqual(storage.listObservations(first.listingId), [first, later]);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('storage defaults database path beneath IMOTI_DATA_DIR and rejects unsupported location precision', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
   const previous = process.env.IMOTI_DATA_DIR;

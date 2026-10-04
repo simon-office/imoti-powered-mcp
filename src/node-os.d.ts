@@ -2,6 +2,10 @@ declare module 'node:os' {
   export function homedir(): string;
 }
 
+declare module 'node:util' {
+  export function isDeepStrictEqual(value1: unknown, value2: unknown): boolean;
+}
+
 declare module 'node:fs' {
   export function mkdirSync(path: string, options: { recursive: boolean }): void;
 }

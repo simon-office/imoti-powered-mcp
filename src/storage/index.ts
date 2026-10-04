@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { isDeepStrictEqual } from 'node:util';
 
 export type LocationPrecision = 'exact' | 'street' | 'neighbourhood' | 'unknown';
 export type NoteKind = 'favourite' | 'rejected' | 'viewing' | 'note';
@@ -102,6 +103,11 @@ export function openStorage(path?: string): Storage {
       if (previous && observedAt < previous.last_observed_at) return;
       const first = previous?.first_observed_at ?? listing.firstObservedAt ?? observedAt;
       const current = { ...listing, firstObservedAt: first, lastObservedAt: observedAt };
+      // Compare JSON values with stored timestamps so equivalent upserts are no-ops.
+      if (previous && isDeepStrictEqual(
+        JSON.parse(previous.normalized_json),
+        JSON.parse(JSON.stringify({ ...current, lastObservedAt: previous.last_observed_at })),
+      )) return;
       db.prepare(`INSERT INTO listings(id, property_key, normalized_json, first_observed_at, last_observed_at)
         VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET property_key=excluded.property_key,
         normalized_json=excluded.normalized_json, last_observed_at=excluded.last_observed_at`)
