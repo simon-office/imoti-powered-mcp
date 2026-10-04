@@ -9,6 +9,8 @@ const run = (args, dataDir) => spawnSync(process.execPath, ['--disable-warning=E
   encoding: 'utf8', env: { ...process.env, IMOTI_DATA_DIR: dataDir },
 });
 
+const saveWatchedSearch = (dataDir, criteria) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.saveSearch({ id: 'cli-test-search', criteria: ${JSON.stringify(criteria)}, createdAt: new Date().toISOString() }); storage.close();`], { encoding: 'utf8' });
+
 test('search command prints verification and persists structured results from fixtures', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
   try {
@@ -76,5 +78,35 @@ test('protective screen returns status 3 with visible-mode guidance', async () =
     assert.match(result.stderr, /protective screen/i);
     assert.match(result.stderr, /--visible/);
     assert.doesNotMatch(result.stderr, / at .*\.js:/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh command uses saved searches, reports changes, and is idempotent', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-refresh-'));
+  const dataDir = join(directory, 'data');
+  const fixtures = new URL('./fixtures', import.meta.url).pathname;
+  try {
+    const setup = run(['search', '--fixtures', fixtures, '--district', 'Iztok'], dataDir);
+    assert.equal(setup.status, 0, setup.stderr);
+    const saved = JSON.parse(await readFile(join(dataDir, 'last-search.json'), 'utf8'));
+    assert.equal(saveWatchedSearch(dataDir, saved.query.criteria).status, 0);
+    const first = run(['refresh', '--fixtures', fixtures], dataDir);
+    assert.equal(first.status, 0, first.stderr);
+    assert.match(first.stdout, /Refreshed 1 saved search/);
+    const second = run(['refresh', '--fixtures', fixtures], dataDir);
+    assert.equal(second.status, 0, second.stderr);
+    assert.match(second.stdout, /recorded 0 changes/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh command fails non-zero when fixture lookup fails', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-refresh-'));
+  const emptyFixtures = join(directory, 'fixtures');
+  await mkdir(emptyFixtures);
+  try {
+    assert.equal(saveWatchedSearch(join(directory, 'data'), { deal: 'sale', city: 'Sofia', districts: ['Iztok'], propertyTypes: [], maxPages: 1 }).status, 0);
+    const result = run(['refresh', '--fixtures', emptyFixtures], join(directory, 'data'));
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /No fixture configured for/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

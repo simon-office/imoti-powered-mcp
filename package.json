@@ -11,7 +11,8 @@
     "build": "tsc",
     "test": "npm run build && node --disable-warning=ExperimentalWarning --test",
     "search": "node --disable-warning=ExperimentalWarning dist/cli.js search",
-    "listing": "node --disable-warning=ExperimentalWarning dist/cli.js listing"
+    "listing": "node --disable-warning=ExperimentalWarning dist/cli.js listing",
+    "refresh": "node --disable-warning=ExperimentalWarning dist/cli.js refresh"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.3.0",
