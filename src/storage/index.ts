@@ -170,8 +170,8 @@ export function openStorage(path?: string): Storage {
     listChanges(options = {}) {
       const limit = options.limit === undefined ? -1 : Math.max(0, Math.floor(options.limit));
       const rows = options.since === undefined
-        ? db.prepare('SELECT id, listing_id, kind, occurred_at, event_json FROM events ORDER BY occurred_at, id LIMIT ?').all(limit)
-        : db.prepare('SELECT id, listing_id, kind, occurred_at, event_json FROM events WHERE occurred_at >= ? ORDER BY occurred_at, id LIMIT ?').all(options.since, limit);
+        ? db.prepare('SELECT id, listing_id, kind, occurred_at, event_json FROM events ORDER BY occurred_at DESC, id DESC LIMIT ?').all(limit)
+        : db.prepare('SELECT id, listing_id, kind, occurred_at, event_json FROM events WHERE occurred_at >= ? ORDER BY occurred_at DESC, id DESC LIMIT ?').all(options.since, limit);
       return (rows as Array<{ id: number; listing_id: string; kind: EventKind; occurred_at: string; event_json: string }>).map(row => ({ id: row.id, listingId: row.listing_id, kind: row.kind, occurredAt: row.occurred_at, data: JSON.parse(row.event_json) }));
     },
     saveSearch(search) { db.prepare('INSERT INTO searches(id, search_json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET search_json=excluded.search_json').run(search.id, JSON.stringify(search)); },

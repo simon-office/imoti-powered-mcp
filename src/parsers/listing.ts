@@ -43,6 +43,13 @@ function truth(value: string | null): boolean | null {
   return null;
 }
 
+export function sanitizeListingText(value: string | null): string | null {
+  if (value === null) return null;
+  return value
+    .replace(/[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[redacted]')
+    .replace(/(?<!\w)\+?\d[\d\s()./-]{5,}\d(?!\w)/g, '[redacted]');
+}
+
 export function parseListing(input: string | Uint8Array, url?: string): ListingDetails | Unavailable {
   const html = typeof input === 'string' ? input : new TextDecoder('windows-1251').decode(input);
   const document = parse(html);
@@ -72,7 +79,7 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const floorNumber = floorMatch?.[1]?.match(/\d+/)?.[0];
   const constructionText = param(document, /^Строителство/i);
   const descriptionNode = document.querySelector('.moreInfo > .text') ?? document.querySelector('.description') ?? document.querySelector('.adDescription');
-  const description = descriptionNode?.innerHTML ? descriptionNode.innerHTML.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() : null;
+  const description = sanitizeListingText(descriptionNode?.innerHTML ? descriptionNode.innerHTML.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() : null);
   const photosRaw = offer?.itemOffered?.image ?? offer?.image;
   const photoValues = photosRaw == null
     ? document.querySelectorAll('.gallery img, .adGallery img, .photos img').map((image) => image.getAttribute('data-src') ?? image.getAttribute('src') ?? '').filter(Boolean)
@@ -97,7 +104,7 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
     price: amount !== null && currency ? { amount, currency } : null, pricePerM2, priceLowered: lowered,
     areaM2: numeric(areaText?.match(/[\d\s,.]+/)?.[0]), floor: floorMatch ? (floorNumber ? Number(floorNumber) : 0) : null, floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
     gas: truth(param(document, /^Газ/i)), districtHeating: truth(param(document, /^Т[ЕE]Ц/i)), construction, constructionPeriod: period, description,
-    location, photos, seller: { kind: /частно лице|частен продавач/i.test(`${sellerType} ${sellerName}`) ? 'private' : sellerName ? 'agency' : 'unknown', name: sellerName }, vatNote,
+    location, photos, seller: { kind: /частно лице|частен продавач/i.test(`${sellerType} ${sellerName}`) ? 'private' : sellerName ? 'agency' : 'unknown', name: null }, vatNote,
     appliedFilters: { deal: crumbs[1] ?? null, city: crumbs[2] ?? null, district: crumbs[3] ?? null, type: crumbs[4] ?? null },
   };
 }

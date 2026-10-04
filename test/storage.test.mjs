@@ -33,6 +33,28 @@ test('storage migrates an empty file and persists listings, observations, search
   }
 });
 
+test('change history returns newest timestamp and tied IDs first while preserving since and limit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    for (const [listingId, occurredAt] of [
+      ['older', '2026-01-01T00:00:00.000Z'],
+      ['tie-a', '2026-01-02T00:00:00.000Z'],
+      ['tie-b', '2026-01-02T00:00:00.000Z'],
+      ['newest', '2026-01-03T00:00:00.000Z'],
+    ]) {
+      storage.upsertListing({ id: listingId });
+      storage.recordChange({ listingId, kind: 'edited', occurredAt, data: {} });
+    }
+    assert.deepEqual(storage.listChanges({ limit: 2 }).map(({ listingId }) => listingId), ['newest', 'tie-b']);
+    assert.deepEqual(storage.listChanges({ since: '2026-01-02T00:00:00.000Z' }).map(({ listingId }) => listingId), ['newest', 'tie-b', 'tie-a']);
+    assert.deepEqual(storage.listChanges({ limit: 0 }), []);
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('equivalent listing upserts leave persisted values and timestamps unchanged without a write', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
   const path = join(dir, 'imoti.db');
@@ -322,10 +344,10 @@ test('change events persist idempotently, round-trip, and filter by time and lim
     );
     assert.equal(storage.recordChange({ ...event, kind: 'disappeared', data: { status: 'no longer observed' } }), true);
     assert.deepEqual(storage.listChanges(), [
-      { ...event, id: 1 },
       { ...event, id: 2, kind: 'disappeared', data: { status: 'no longer observed' } },
+      { ...event, id: 1 },
     ]);
-    assert.deepEqual(storage.listChanges({ since: '2026-09-02T00:00:00.000Z', limit: 1 }), [{ ...event, id: 1 }]);
+    assert.deepEqual(storage.listChanges({ since: '2026-09-02T00:00:00.000Z', limit: 1 }), [{ ...event, id: 2, kind: 'disappeared', data: { status: 'no longer observed' } }]);
     assert.equal(storage.getListing('event-listing').firstObservedAt, '2026-09-01T00:00:00.000Z');
   } finally {
     storage.close();
