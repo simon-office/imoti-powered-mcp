@@ -158,7 +158,12 @@ test('watched refresh persists only real changes and get_changes returns a safe 
       assert.equal(storage.listChanges().length, 4, 'identical repeated refreshes must not write duplicate events');
       const changes = await client.callTool({ name: 'get_changes', arguments: { limit: 1 } });
       assert.equal(changes.structuredContent.changes.length, 1);
+      assert.match(changes.structuredContent.digest, /^new_match: 1/);
       assert.match(changes.structuredContent.digest, /1c100000000000001.*new_match/);
+      assert.match(changes.structuredContent.digest, /3-СТАЕН/);
+      assert.match(changes.structuredContent.digest, /Изток/);
+      assert.match(changes.structuredContent.digest, /125000 EUR/);
+      assert.doesNotMatch(changes.structuredContent.digest, /undefined/);
       assert.doesNotMatch(changes.structuredContent.digest, /sold|transaction/i);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
@@ -201,8 +206,10 @@ test('refresh records disappearance only after every search page completes', asy
   const adapter = {
     async fetchPage(url) {
       if (mode === 'failure') throw new Error('fixture fetch failed');
-      const fixture = mode === 'empty' ? './fixtures/search-empty.html' : './fixtures/search-normal.html';
-      return { url, status: 200, html: await readFile(new URL(fixture, import.meta.url), 'utf8'), fetchedAt: new Date() };
+      const fixture = mode === 'empty' || mode === 'incomplete-empty' ? './fixtures/search-empty.html' : './fixtures/search-normal.html';
+      let html = await readFile(new URL(fixture, import.meta.url), 'utf8');
+      if (mode === 'incomplete-empty') html = html.replace('</body>', '<a class="next" href="/obiavi/prodazhbi/p-2">Next</a></body>');
+      return { url, status: 200, html, fetchedAt: new Date() };
     },
     async close() {},
   };
@@ -214,6 +221,9 @@ test('refresh records disappearance only after every search page completes', asy
       const failed = await client.callTool({ name: 'refresh_watched', arguments: {} });
       assert.equal(failed.isError, true);
       assert.equal(storage.listChanges().filter(event => event.kind === 'disappeared').length, 0);
+      mode = 'incomplete-empty';
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(storage.listChanges().filter(event => event.kind === 'disappeared').length, 0, 'a next-page link means results are incomplete');
       mode = 'empty';
       await client.callTool({ name: 'refresh_watched', arguments: {} });
       const disappeared = storage.listChanges().filter(event => event.kind === 'disappeared');
@@ -222,6 +232,22 @@ test('refresh records disappearance only after every search page completes', asy
       assert.ok(disappeared.every(event => !/sold/i.test(JSON.stringify(event))));
       await client.callTool({ name: 'refresh_watched', arguments: {} });
       assert.equal(storage.listChanges().filter(event => event.kind === 'disappeared').length, 4, 'repeated absence must not duplicate events');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('watched detail refresh records disappearance when the detail page reports unavailable', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-watched-unavailable-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const id = '1c100000000000001';
+  storage.upsertListing({ id, status: 'available' });
+  storage.watch(id);
+  const adapter = new FixtureAdapter([[new RegExp(`obiava-${id}`), new URL('./fixtures/listing-removed.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'disappeared').length, 1);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
@@ -235,12 +261,25 @@ test('refresh classifies price and non-price normalized snapshot edits', async (
   try {
     await withClient(createServer({ adapter, storage }), async client => {
       await client.callTool({ name: 'refresh_watched', arguments: {} });
+      const unchanged = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(unchanged.structuredContent.changes, 0);
+      assert.equal(storage.listChanges().filter(event => event.kind === 'edited').length, 0, 'overlapping unchanged saved-search observations do not create edits');
       html = html.replace('125 000 €', '124 000 €');
       await client.callTool({ name: 'refresh_watched', arguments: {} });
-      assert.equal(storage.listChanges().filter(event => event.kind === 'price_change').length, 1);
+      const priceEvents = storage.listChanges().filter(event => event.kind === 'price_change');
+      assert.equal(priceEvents.length, 1);
+      assert.deepEqual(priceEvents[0].data.oldAskingPrice, { amount: 125000, currency: 'EUR' });
+      assert.deepEqual(priceEvents[0].data.newAskingPrice, { amount: 124000, currency: 'EUR' });
+      const digest = await client.callTool({ name: 'get_changes', arguments: {} });
+      assert.match(digest.structuredContent.digest, /^new_match: 4, price_change: 1/);
+      assert.match(digest.structuredContent.digest, /price_change: 1/);
+      assert.match(digest.structuredContent.digest, /125000 EUR.*124000 EUR/);
+      assert.doesNotMatch(digest.structuredContent.digest, /undefined/);
       html = html.replace('Продава 3-СТАЕН', 'Продава 3-СТАЕН редактиран');
       await client.callTool({ name: 'refresh_watched', arguments: {} });
-      assert.equal(storage.listChanges().filter(event => event.kind === 'edited').length, 1);
+      const edited = storage.listChanges().filter(event => event.kind === 'edited');
+      assert.equal(edited.length, 1);
+      assert.ok(edited.some(event => event.listingId === '1c100000000000001'), 'a changed shared title field creates an edit for that listing');
       const invalid = await client.callTool({ name: 'get_changes', arguments: { since: 'yesterday' } });
       assert.equal(invalid.isError, true);
     });
@@ -313,6 +352,12 @@ test('search visits every requested district even when the first district reache
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'] }, limit: 10 } });
       assert.equal(result.isError, undefined, result.content?.[0]?.text);
       assert.equal(result.structuredContent.listings.length, 10, 'the first district alone must fill the shared result limit');
+      assert.deepEqual(result.structuredContent.districtCounts, { iztok: 9, lozenets: 1 });
+      assert.deepEqual(result.structuredContent.listings.map(listing => listing.id), [
+        '1c100000000000011', '1c100000000000099', '1c100000000000012', '1c100000000000013', '1c100000000000014',
+        '1c100000000000015', '1c100000000000016', '1c100000000000017', '1c100000000000018', '1c100000000000019',
+      ]);
+      assert.ok(result.structuredContent.listings.length <= 10);
       assert.equal(adapter.requests.length, result.structuredContent.query.urls.length);
       assert.ok(result.structuredContent.query.urls.some(url => url.includes('/iztok/')));
       assert.ok(result.structuredContent.query.urls.some(url => url.includes('/lozenets/')));
@@ -458,7 +503,7 @@ test('server_info exposes server metadata and selected data directory over memor
     assert.deepEqual(tools.tools.map(({ name }) => name), ['server_info']);
     const result = await client.callTool({ name: 'server_info' });
     assert.deepEqual(result.structuredContent, {
-      name: 'imoti', version: '0.1.0', stage: '1', dataDir: '/tmp/imoti-test-data',
+      name: 'imoti', version: '0.1.0', stage: '3', dataDir: '/tmp/imoti-test-data',
     });
     assert.equal(result.content.length, 1);
     assert.equal(result.content[0].type, 'text');

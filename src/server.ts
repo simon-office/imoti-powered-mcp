@@ -26,7 +26,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
   const outputSchema = {
     name: z.string(),
     version: z.string(),
-    stage: z.literal('1'),
+    stage: z.literal('3'),
     dataDir: z.string(),
   };
 
@@ -38,7 +38,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       outputSchema,
     },
     async () => {
-      const info = { name: 'imoti', version: VERSION, stage: '1' as const, dataDir };
+      const info = { name: 'imoti', version: VERSION, stage: '3' as const, dataDir };
       return {
         structuredContent: info,
         content: [{ type: 'text' as const, text: `imoti ${VERSION} (stage ${info.stage}); data directory: ${dataDir}` }],
@@ -55,7 +55,17 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
     }, async ({ since, limit }) => {
       try {
         const changes = storage.listChanges({ since, limit });
-        const digest = changes.length ? changes.map(event => `${event.listingId}: ${event.kind}`).join('; ') : 'No listing changes.';
+        const counts = Object.fromEntries(['new_match', 'price_change', 'edited', 'disappeared'].map(kind => [kind, changes.filter(event => event.kind === kind).length]));
+        const details = changes.map(event => {
+          const data = event.data as Record<string, unknown>;
+          const listing = storage.getListing(event.listingId);
+          const property = listing?.propertyType as { label?: unknown } | undefined;
+          const location = listing?.location as { district?: unknown } | undefined;
+          const fields = [typeof property?.label === 'string' ? property.label : undefined, typeof location?.district === 'string' ? location.district : undefined, askingPrice(listing?.price)];
+          if (event.kind === 'price_change') fields.push(`asking price ${formatValue(data.oldAskingPrice ?? data.from)} → ${formatValue(data.newAskingPrice ?? data.to)}`);
+          return `${event.listingId}: ${event.kind}${fields.some(Boolean) ? ` (${fields.filter(Boolean).join(', ')})` : ''}`;
+        });
+        const digest = changes.length ? `${Object.entries(counts).map(([kind, count]) => `${kind}: ${count}`).join(', ')}; ${details.join('; ')}` : 'No listing changes.';
         return { structuredContent: { changes, digest }, content: [{ type: 'text' as const, text: digest }] };
       } catch (error) { return toolError(error); }
     });
@@ -111,6 +121,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const built = buildSearchUrls(criteria);
           const current = new Map<string, { listing: Listing; sourceUrl: string }>();
           const prior = new Map<string, Listing>();
+          let complete = true;
           for (const observation of storage.listObservations().filter(item => built.urls.includes(item.sourceUrl))) {
             const snapshot = storage.getListing(observation.listingId);
             if (snapshot) prior.set(observation.listingId, snapshot);
@@ -118,7 +129,9 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           // Each page must finish parsing before an absent listing can be considered no longer observed.
           for (const url of built.urls) {
             const page = await adapter.fetchPage(url);
-            for (const item of parseSearchResults(page.html, url).listings) {
+            const parsedPage = parseSearchResults(page.html, url);
+            if (parsedPage.nextPageUrl) complete = false;
+            for (const item of parsedPage.listings) {
               if (!item.id || !item.url) continue;
               const listing: Listing = { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' };
               current.set(item.id, { listing, sourceUrl: url });
@@ -153,9 +166,9 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
               const cardChanged = !sameSnapshot(overlappingSnapshot(comparison, listing), overlappingSnapshot(listing, comparison));
               if (cardChanged) kind = !sameSnapshot({ id, price: comparison.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
             }
-            if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorSnapshot?.price ?? null, to: normalized.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
+            if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorSnapshot?.price ?? null, to: normalized.price ?? null, oldAskingPrice: priorSnapshot?.price ?? null, newAskingPrice: normalized.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
           }
-          for (const [id] of prior) if (!current.has(id) && latestChanges.get(id) !== 'disappeared' && storage.recordChange({ listingId: id, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) { changeCount++; latestChanges.set(id, 'disappeared'); }
+          for (const [id] of prior) if (complete && !current.has(id) && latestChanges.get(id) !== 'disappeared' && storage.recordChange({ listingId: id, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) { changeCount++; latestChanges.set(id, 'disappeared'); }
           refreshedSearches++;
         }
         for (const listingId of storage.listWatched()) {
@@ -167,11 +180,13 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const previous = storage.getListing(listingId);
           storage.upsertListing(listing, observedAt);
           storage.recordObservation({ listingId, observedAt, sourceUrl: url, raw: listing, normalized: listing });
-          if (previous && !sameSnapshot(previous, listing)) {
+          if (previous && listing.status === 'not_available') {
+            if (storage.recordChange({ listingId, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) changeCount++;
+          } else if (previous && !sameSnapshot(previous, listing)) {
             const previousPrice = (previous.price as { amount?: unknown } | undefined)?.amount;
             const currentPrice = (listing.price as { amount?: unknown } | undefined)?.amount;
             const kind = previousPrice !== currentPrice ? 'price_change' : 'edited';
-            if (storage.recordChange({ listingId, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: previousPrice ?? null, to: currentPrice ?? null } : {} })) changeCount++;
+            if (storage.recordChange({ listingId, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: previousPrice ?? null, to: currentPrice ?? null, oldAskingPrice: previous.price ?? null, newAskingPrice: listing.price ?? null } : {} })) changeCount++;
           }
           refreshedListings++;
         }
@@ -181,7 +196,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
     const searchOutput = z.object({
       query: z.object({ urls: z.array(z.string()), criteria: z.record(z.string(), z.unknown()) }),
       verification: z.object({ ok: z.boolean(), mismatches: z.array(z.record(z.string(), z.unknown())) }),
-      listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(),
+      listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()),
     });
     server.registerTool('search_listings', {
       description: 'Search verified property listings in Sofia. Returns matching listings and filter verification.',
@@ -228,13 +243,19 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           }
           if (listings.size >= limit) { truncated = true; if (!criteria.districts.length) break; }
         }
-        const results = [...listings.values()].slice(0, limit);
+        const ordered = [...listings.values()];
+        const districtOf = (item: Listing) => (item.location as { district?: unknown } | undefined)?.district;
+        const districtGroups = criteria.districts.length ? criteria.districts.map(name => ordered.filter(item => typeof districtOf(item) === 'string' && resolveDistrict(districtOf(item) as string).slug === resolveDistrict(name).slug)) : [ordered];
+        const interleaved: Listing[] = [];
+        for (let index = 0; districtGroups.some(group => index < group.length); index++) for (const group of districtGroups) if (group[index] && !interleaved.some(item => item.id === group[index].id)) interleaved.push(group[index]);
+        const results = interleaved.slice(0, limit);
+        const districtCounts = Object.fromEntries(criteria.districts.map(name => [resolveDistrict(name).slug, results.filter(item => typeof districtOf(item) === 'string' && resolveDistrict(districtOf(item) as string).slug === resolveDistrict(name).slug).length]));
         if (listings.size > limit) truncated = true;
         for (const listing of results) {
           storage.upsertListing(listing, observedAt);
           storage.recordObservation({ listingId: listing.id, observedAt, sourceUrl: sourceUrls.get(listing.id) ?? String(listing.url), raw: listing, normalized: listing });
         }
-        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated };
+        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts };
         return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}; filters ${output.verification.ok ? 'verified' : 'need review'}.` }] };
       } catch (error) { return toolError(error); }
     });
@@ -283,14 +304,25 @@ function sameSnapshot(previous: Listing, current: Listing): boolean {
 }
 
 function overlappingSnapshot(previous: Listing, current: Listing): Listing {
-  const overlap = (prior: unknown, fetched: unknown): unknown => {
-    if (fetched && typeof fetched === 'object' && !Array.isArray(fetched)) {
-      const priorRecord = prior && typeof prior === 'object' && !Array.isArray(prior) ? prior as Record<string, unknown> : {};
-      return Object.fromEntries(Object.entries(fetched).filter(([key]) => key in priorRecord).map(([key, value]) => [key, overlap(priorRecord[key], value)]));
+  const overlap = (left: unknown, right: unknown): unknown => {
+    if (left && right && typeof left === 'object' && typeof right === 'object' && !Array.isArray(left) && !Array.isArray(right)) {
+      const a = left as Record<string, unknown>, b = right as Record<string, unknown>;
+      return Object.fromEntries(Object.keys(a).filter(key => key in b).map(key => [key, overlap(a[key], b[key])]));
     }
-    return prior;
+    return { left, right };
   };
   return overlap(previous, current) as Listing;
+}
+
+function askingPrice(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const price = value as { amount?: unknown; currency?: unknown };
+  return typeof price.amount === 'number' ? `${price.amount}${typeof price.currency === 'string' ? ` ${price.currency}` : ''}` : undefined;
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return 'unavailable';
+  return askingPrice(value) ?? (typeof value === 'string' || typeof value === 'number' ? String(value) : 'available');
 }
 
 function sortObject(value: unknown): unknown {
