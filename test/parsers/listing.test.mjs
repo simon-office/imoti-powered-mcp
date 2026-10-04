@@ -37,12 +37,23 @@ test('uses DOM fallback, district precision, lowered price and VAT note', async 
   assert.deepEqual(result.price, { amount: 99000, currency: 'EUR' });
   assert.equal(result.pricePerM2, 1980);
   assert.equal(result.priceLowered, true);
-  assert.equal(result.location.precision, 'district');
+  assert.deepEqual(result.location, { city: 'град София', district: 'Люлин-1', street: null, precision: 'neighbourhood' });
   assert.equal(result.location.street, null);
   assert.equal(result.description, 'Само измислен текст.\nОще измислен текст.');
   assert.deepEqual(result.seller, { kind: 'private', name: 'Частен продавач' });
   assert.match(result.vatNote, /без ДДС/);
-  assert.deepEqual(result.photos, []);
+  assert.deepEqual(result.photos, ['https://imotstatic1.focus.bg/fake-dom-full.jpg']);
+  assert.equal(result.url, 'https://www.imot.bg/obiava-1c100000000000002-izmisleno');
+  assert.equal(result.dealType, 'sale');
+  assert.deepEqual(result.propertyType, { label: '2-СТАЕН', rooms: 2 });
+  assert.equal(result.areaM2, 50);
+  assert.equal(result.floor, 2);
+  assert.equal(result.floorsTotal, 5);
+  assert.equal(result.gas, false);
+  assert.equal(result.districtHeating, true);
+  assert.equal(result.construction, 'Панел');
+  assert.equal(result.constructionPeriod, '1990 - 1999 г.');
+  assert.deepEqual(result.appliedFilters, { deal: null, city: null, district: null, type: null });
 });
 
 test('returns removed listings as not available without throwing', async () => {
@@ -51,5 +62,26 @@ test('returns removed listings as not available without throwing', async () => {
 
 test('decodes listing HTML supplied as windows-1251 bytes', async () => {
   const byteListing = Uint8Array.from(JSON.parse(await fixture('listing-windows-1251.json')));
-  assert.equal(parseListing(byteListing, 'https://www.imot.bg/obiava-1c100000000000004-test').title, 'Продава');
+  const result = parseListing(byteListing, 'https://www.imot.bg/obiava-1c100000000000004-test');
+  assert.equal(result.id, '1c100000000000004');
+  assert.equal(result.url, 'https://www.imot.bg/obiava-1c100000000000004-test');
+  assert.equal(result.title, 'Продава');
+  assert.equal(result.dealType, 'sale');
+  assert.equal(result.propertyType, null);
+  assert.equal(result.price, null);
+  assert.equal(result.pricePerM2, null);
+  assert.equal(result.priceLowered, false);
+  assert.equal(result.areaM2, null);
+  assert.equal(result.floor, null);
+  assert.equal(result.floorsTotal, null);
+  assert.equal(result.gas, null);
+  assert.equal(result.districtHeating, null);
+  assert.equal(result.construction, null);
+  assert.equal(result.constructionPeriod, null);
+  assert.equal(result.description, null);
+  assert.deepEqual(result.location, { city: 'kрад София', district: 'Изток', street: null, precision: 'neighbourhood' });
+  assert.deepEqual(result.photos, []);
+  assert.deepEqual(result.seller, { kind: 'unknown', name: null });
+  assert.equal(result.vatNote, null);
+  assert.deepEqual(result.appliedFilters, { deal: null, city: null, district: null, type: null });
 });

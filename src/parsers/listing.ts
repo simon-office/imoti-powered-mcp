@@ -6,7 +6,7 @@ export type ListingDetails = {
   price: { amount: number; currency: string } | null; pricePerM2: number | null; priceLowered: boolean;
   areaM2: number | null; floor: number | null; floorsTotal: number | null; gas: boolean | null; districtHeating: boolean | null;
   construction: string | null; constructionPeriod: string | null; description: string | null;
-  location: { city: string | null; district: string | null; street: string | null; precision: 'street' | 'district' | 'city' | 'unknown' };
+  location: { city: string | null; district: string | null; street: string | null; precision: 'exact' | 'street' | 'neighbourhood' | 'unknown' };
   photos: string[]; seller: { kind: 'agency' | 'private' | 'unknown'; name: string | null }; vatNote: string | null;
   appliedFilters: { deal: string | null; city: string | null; district: string | null; type: string | null };
 };
@@ -61,7 +61,7 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const street = titleLocation.find((part) => /^(ул\.|бул\.|улица|булевард)\s/i.test(part)) ?? null;
   const city = titleLocation[0] && !/^(ул\.|бул\.)/i.test(titleLocation[0]) ? titleLocation[0] : null;
   const district = titleLocation.find((part, index) => index > 0 && part !== street && !/^(ул\.|бул\.)/i.test(part)) ?? null;
-  const location = { city, district, street, precision: (street ? 'street' : district ? 'district' : city ? 'city' : 'unknown') as ListingDetails['location']['precision'] };
+  const location = { city, district, street, precision: (street ? 'street' : district ? 'neighbourhood' : 'unknown') as ListingDetails['location']['precision'] };
   const priceText = clean(document.querySelector('.adPrice .price .cena'));
   const currency = offer?.priceCurrency ?? (priceText?.includes('€') ? 'EUR' : priceText?.includes('$') ? 'USD' : priceText?.includes('лв') ? 'BGN' : null);
   const amount = numeric(offer?.price != null ? String(offer.price) : priceText);
@@ -71,8 +71,11 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const constructionText = param(document, /^Строителство/i);
   const descriptionNode = document.querySelector('.description') ?? document.querySelector('.adDescription');
   const description = descriptionNode?.innerHTML ? descriptionNode.innerHTML.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() : null;
-  const photosRaw = offer?.itemOffered?.image ?? offer?.image ?? [];
-  const photos = (Array.isArray(photosRaw) ? photosRaw : [photosRaw]).map((photo: unknown) => typeof photo === 'string' ? absolute(photo, url ?? 'https://www.imot.bg/') : null).filter((photo: string | null): photo is string => photo !== null);
+  const photosRaw = offer?.itemOffered?.image ?? offer?.image;
+  const photoValues = photosRaw == null
+    ? document.querySelectorAll('.gallery img, .adGallery img, .photos img').map((image) => image.getAttribute('data-src') ?? image.getAttribute('src') ?? '').filter(Boolean)
+    : Array.isArray(photosRaw) ? photosRaw : [photosRaw];
+  const photos = photoValues.map((photo: unknown) => typeof photo === 'string' ? absolute(photo, url ?? 'https://www.imot.bg/') : null).filter((photo: string | null): photo is string => photo !== null);
   const sellerName = clean(document.querySelector('.dealer2023 .name'));
   const sellerType = clean(document.querySelector('.dealer2023 .sellerType'));
   const lowered = document.querySelector('.adPrice .price.DOWN') !== null;
