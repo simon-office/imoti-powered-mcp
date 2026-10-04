@@ -8,7 +8,7 @@ const fixture = (name) => readFile(new URL(`../fixtures/${name}`, import.meta.ur
 test('parses full street-level listing details and structured Offer fields', async () => {
   const result = parseListing(await fixture('listing-street.html'), 'https://www.imot.bg/obiava-1c100000000000001-izmislena');
   assert.equal(result.id, '1c100000000000001');
-  assert.equal(result.title, '3-СТАЕН, Изток');
+  assert.equal(result.title, 'Продава 3-СТАЕН измислен апартамент');
   assert.equal(result.dealType, 'sale');
   assert.deepEqual(result.propertyType, { label: '3-СТАЕН', rooms: 3 });
   assert.deepEqual(result.price, { amount: 125000, currency: 'EUR' });
@@ -58,6 +58,21 @@ test('uses DOM fallback, district precision, lowered price and VAT note', async 
 
 test('returns removed listings as not available without throwing', async () => {
   assert.deepEqual(parseListing(await fixture('listing-removed.html'), 'https://www.imot.bg/obiava-1c100000000000003-test'), { status: 'not_available', id: '1c100000000000003' });
+});
+
+test('parses the corrected live listing structure and breadcrumb positions', async () => {
+  const result = parseListing(await fixture('listing-live-fixes.html'));
+  assert.equal(result.title, 'Продава 2-СТАЕН измислен дом');
+  assert.equal(result.dealType, 'sale');
+  assert.equal(result.areaM2, 100);
+  assert.equal(result.pricePerM2, 1234);
+  assert.equal(result.districtHeating, true);
+  assert.equal(result.construction, 'Тухла');
+  assert.equal(result.constructionPeriod, '2020 - 2024 г.');
+  assert.equal(result.description, 'Измислено описание без лични данни.\nВтори измислен ред.');
+  assert.deepEqual(result.location, { city: 'град София', district: 'Изток', street: 'бул. Измислена 7', precision: 'street' });
+  assert.equal(result.vatNote, 'Цената е с включено ДДС');
+  assert.deepEqual(result.appliedFilters, { deal: 'Продажби', city: 'град София', district: 'Изток', type: 'Двустайни апартаменти' });
 });
 
 test('decodes listing HTML supplied as windows-1251 bytes', async () => {
