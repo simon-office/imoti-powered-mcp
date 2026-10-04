@@ -90,6 +90,56 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('get_listing fetches after a search-card observation instead of treating it as detail cache', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const id = '1c100000000000001';
+  const url = 'https://www.imot.bg/obiava-1c100000000000001';
+  storage.recordObservation({ listingId: id, observedAt: new Date().toISOString(), sourceUrl: 'https://www.imot.bg/obiavi/prodazhbi', raw: { title: 'Card only' }, normalized: { id, title: 'Card only', status: 'available' } });
+  const adapter = new FixtureAdapter([[/obiava-1c100000000000001/, new URL('./fixtures/listing-street.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing', arguments: { id } });
+      assert.equal(result.structuredContent.cached, false);
+      assert.equal(adapter.requests.length, 1);
+      assert.notEqual(result.structuredContent.listing.title, 'Card only');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search visits every requested district even when the first district reaches the result limit', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([
+    [/iztok/, new URL('./fixtures/search-iztok-limit.html', import.meta.url)],
+    [/lozenets/, new URL('./fixtures/search-lozenets-matching.html', import.meta.url)],
+  ]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'] }, limit: 10 } });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.equal(result.structuredContent.listings.length, 10, 'the first district alone must fill the shared result limit');
+      assert.equal(adapter.requests.length, result.structuredContent.query.urls.length);
+      assert.ok(result.structuredContent.query.urls.some(url => url.includes('/iztok/')));
+      assert.ok(result.structuredContent.query.urls.some(url => url.includes('/lozenets/')));
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('get_listing stores parsed listing values rather than fetched HTML', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const url = 'https://www.imot.bg/obiava-1c100000000000001-test';
+  try {
+    await withClient(createServer({ adapter: new FixtureAdapter([[url, new URL('./fixtures/listing-street.html', import.meta.url)]]), storage }), async client => {
+      await client.callTool({ name: 'get_listing', arguments: { url } });
+      const raw = JSON.stringify(storage.listObservations('1c100000000000001')[0].raw);
+      assert.doesNotMatch(raw, /<html|0888000000|Иван Пример/i);
+      assert.match(raw, /title|price|description/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('get_listing rejects non-canonical hosts and mismatched ids before fetching', async () => {
   const storage = { listObservations: () => [], upsertListing() {}, recordObservation() {} };
   const requests = [];

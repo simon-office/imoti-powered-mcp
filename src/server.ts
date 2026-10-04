@@ -95,7 +95,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
               sourceUrls.set(item.id, url);
             }
           }
-          if (listings.size >= limit) { truncated = true; break; }
+          if (listings.size >= limit) { truncated = true; if (!criteria.districts.length) break; }
         }
         const results = [...listings.values()].slice(0, limit);
         if (listings.size > limit) truncated = true;
@@ -121,7 +121,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         if (!listingId) return { isError: true, content: [{ type: 'text' as const, text: 'Provide a listing id or imot.bg listing URL.' }] };
         const canonicalUrl = urlMatch?.url ?? `https://www.imot.bg/obiava-${listingId}`;
         const observations = storage.listObservations(listingId);
-        const latest = observations.at(-1);
+        const latest = observations.filter(observation => isDetailObservation(observation.sourceUrl)).at(-1);
         if (!refresh && latest && Date.now() - Date.parse(latest.observedAt) < 6 * 60 * 60 * 1000) {
           const cached = latest.normalized as Listing;
           return { structuredContent: { listing: cached, observedAt: latest.observedAt, cached: true }, content: [{ type: 'text' as const, text: `${cached.title ?? `Listing ${listingId}`} (cached observation).` }] };
@@ -132,13 +132,18 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const unavailable = 'status' in parsed;
         const listing: Listing = unavailable ? { id: listingId, status: 'not_available' } : { ...parsed, id: listingId, status: 'available' };
         storage.upsertListing(listing, observedAt);
-        storage.recordObservation({ listingId, observedAt, sourceUrl: canonicalUrl, raw: page.html, normalized: listing });
+        storage.recordObservation({ listingId, observedAt, sourceUrl: canonicalUrl, raw: listing, normalized: listing });
         return { structuredContent: { listing, observedAt, cached: false }, content: [{ type: 'text' as const, text: unavailable ? `Listing ${listingId} is no longer available.` : `${parsed.title ?? `Listing ${listingId}`} refreshed.` }] };
       } catch (error) { return toolError(error); }
     });
   }
 
   return server;
+}
+
+function isDetailObservation(sourceUrl: string): boolean {
+  try { return /^\/obiava-[^/]+$/i.test(new URL(sourceUrl).pathname); }
+  catch { return false; }
 }
 
 function parseCanonicalListingUrl(value: string): { id: string; url: string } | undefined {
