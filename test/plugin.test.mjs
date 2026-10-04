@@ -18,6 +18,14 @@ test('plugin manifest retains the task 2 required fields', async () => {
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(typeof manifest.description, 'string');
   assert.ok(manifest.description.length > 0);
-  assert.equal(typeof manifest.author, 'string');
-  assert.ok(manifest.author.length > 0);
+  assert.deepEqual(manifest.author, { name: 'Simon Office' });
+});
+
+test('Node entry points disable ExperimentalWarning without changing their commands', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.match(packageJson.scripts.test, /node --disable-warning=ExperimentalWarning --test$/);
+  assert.match(packageJson.scripts.search, /^node --disable-warning=ExperimentalWarning dist\/cli\.js search$/);
+  assert.match(packageJson.scripts.listing, /^node --disable-warning=ExperimentalWarning dist\/cli\.js listing$/);
+  const mcp = JSON.parse(await readFile(new URL('../.mcp.json', import.meta.url), 'utf8'));
+  assert.deepEqual(mcp.mcpServers.imoti.args, ['--disable-warning=ExperimentalWarning', '${CLAUDE_PLUGIN_ROOT}/dist/main.js']);
 });

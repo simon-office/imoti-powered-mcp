@@ -9,9 +9,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test",
-    "search": "node dist/cli.js search",
-    "listing": "node dist/cli.js listing"
+    "test": "npm run build && node --disable-warning=ExperimentalWarning --test",
+    "search": "node --disable-warning=ExperimentalWarning dist/cli.js search",
+    "listing": "node --disable-warning=ExperimentalWarning dist/cli.js listing"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.3.0",

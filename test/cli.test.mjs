@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-const run = (args, dataDir) => spawnSync(process.execPath, [new URL('../dist/cli.js', import.meta.url).pathname, ...args], {
+const run = (args, dataDir) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', new URL('../dist/cli.js', import.meta.url).pathname, ...args], {
   encoding: 'utf8', env: { ...process.env, IMOTI_DATA_DIR: dataDir },
 });
 
@@ -59,6 +59,7 @@ test('fixture lookup failures return status 1 with a one-line error', async () =
   try {
     const result = run(['search', '--fixtures', emptyFixtures], join(directory, 'data'));
     assert.equal(result.status, 1);
+    assert.match(result.stderr, /No fixture configured for/);
     assert.equal(result.stderr.trim().split('\n').length, 1);
     assert.doesNotMatch(result.stderr, / at .*\.js:/);
   } finally { await rm(directory, { recursive: true, force: true }); }

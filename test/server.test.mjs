@@ -320,8 +320,8 @@ test('plugin manifests declare the package and stdio server', async () => {
   assert.equal(plugin.name, 'imoti-powered-mcp');
   assert.equal(plugin.version, pkg.version);
   assert.ok(plugin.description);
-  assert.equal(plugin.author, 'Simon Office');
+  assert.deepEqual(plugin.author, { name: 'Simon Office' });
   assert.deepEqual(mcp.mcpServers.imoti, {
-    command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/dist/main.js'],
+    command: 'node', args: ['--disable-warning=ExperimentalWarning', '${CLAUDE_PLUGIN_ROOT}/dist/main.js'],
   });
 });
