@@ -260,15 +260,25 @@ test('refresh classifies price and non-price normalized snapshot edits', async (
   try {
     await withClient(createServer({ adapter, storage }), async client => {
       await client.callTool({ name: 'refresh_watched', arguments: {} });
+      const unchanged = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(unchanged.structuredContent.changes, 0);
+      assert.equal(storage.listChanges().filter(event => event.kind === 'edited').length, 0, 'overlapping unchanged saved-search observations do not create edits');
       html = html.replace('125 000 €', '124 000 €');
       await client.callTool({ name: 'refresh_watched', arguments: {} });
       const priceEvents = storage.listChanges().filter(event => event.kind === 'price_change');
       assert.equal(priceEvents.length, 1);
       assert.deepEqual(priceEvents[0].data.oldAskingPrice, { amount: 125000, currency: 'EUR' });
       assert.deepEqual(priceEvents[0].data.newAskingPrice, { amount: 124000, currency: 'EUR' });
+      const digest = await client.callTool({ name: 'get_changes', arguments: {} });
+      assert.match(digest.structuredContent.digest, /^new_match: 4, price_change: 1/);
+      assert.match(digest.structuredContent.digest, /price_change: 1/);
+      assert.match(digest.structuredContent.digest, /125000 EUR.*124000 EUR/);
+      assert.doesNotMatch(digest.structuredContent.digest, /undefined/);
       html = html.replace('Продава 3-СТАЕН', 'Продава 3-СТАЕН редактиран');
       await client.callTool({ name: 'refresh_watched', arguments: {} });
-      assert.equal(storage.listChanges().filter(event => event.kind === 'edited').length, 1);
+      const edited = storage.listChanges().filter(event => event.kind === 'edited');
+      assert.equal(edited.length, 1);
+      assert.ok(edited.some(event => event.listingId === '1c100000000000001'), 'a changed shared title field creates an edit for that listing');
       const invalid = await client.callTool({ name: 'get_changes', arguments: { since: 'yesterday' } });
       assert.equal(invalid.isError, true);
     });
@@ -342,6 +352,11 @@ test('search visits every requested district even when the first district reache
       assert.equal(result.isError, undefined, result.content?.[0]?.text);
       assert.equal(result.structuredContent.listings.length, 10, 'the first district alone must fill the shared result limit');
       assert.deepEqual(result.structuredContent.districtCounts, { iztok: 9, lozenets: 1 });
+      assert.deepEqual(result.structuredContent.listings.map(listing => listing.id), [
+        '1c100000000000011', '1c100000000000099', '1c100000000000012', '1c100000000000013', '1c100000000000014',
+        '1c100000000000015', '1c100000000000016', '1c100000000000017', '1c100000000000018', '1c100000000000019',
+      ]);
+      assert.ok(result.structuredContent.listings.length <= 10);
       assert.equal(adapter.requests.length, result.structuredContent.query.urls.length);
       assert.ok(result.structuredContent.query.urls.some(url => url.includes('/iztok/')));
       assert.ok(result.structuredContent.query.urls.some(url => url.includes('/lozenets/')));
