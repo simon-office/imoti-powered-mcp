@@ -217,6 +217,35 @@ test('refresh classifies price and non-price normalized snapshot edits', async (
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('watched refresh preserves fetched listing details when search-card data is unchanged', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-detail-refresh-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const id = '1c100000000000001';
+  const detailUrl = `https://www.imot.bg/obiava-${id}-test`;
+  const adapter = new FixtureAdapter([
+    [/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)],
+    [detailUrl, new URL('./fixtures/listing-street.html', import.meta.url)],
+  ]);
+  storage.saveSearch({ id: 'detail-refresh-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const detail = await client.callTool({ name: 'get_listing', arguments: { url: detailUrl, refresh: true } });
+      assert.equal(detail.isError, undefined, detail.content?.[0]?.text);
+      const original = storage.getListing(id);
+      assert.ok(original);
+
+      const refreshed = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(refreshed.isError, undefined, refreshed.content?.[0]?.text);
+      const afterRefresh = storage.getListing(id);
+      assert.equal(afterRefresh.description, original.description);
+      assert.deepEqual(afterRefresh.photos, original.photos);
+      assert.equal(afterRefresh.location.street, original.location.street);
+      assert.equal(afterRefresh.gas, original.gas);
+      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'edited').length, 0);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('get_listing fetches after a search-card observation instead of treating it as detail cache', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));

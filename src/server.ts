@@ -128,12 +128,27 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           for (const event of storage.listChanges()) latestChanges.set(event.listingId, event.kind);
           for (const [id, { listing, sourceUrl }] of current) {
             const previous = storage.getListing(id);
-            storage.recordObservation({ listingId: id, observedAt, sourceUrl, raw: listing, normalized: listing });
             const priorSnapshot = previous ?? prior.get(id);
+            const priorCard = storage.listObservations(id)
+              .filter(observation => built.urls.includes(observation.sourceUrl))
+              .at(-1)?.normalized as Listing | undefined;
+            // Search cards omit detail-page fields; merge observed card values without
+            // discarding richer fields already learned from a detail observation.
+            const normalized: Listing = priorSnapshot ? {
+              ...priorSnapshot,
+              ...listing,
+              ...(priorSnapshot.location || listing.location ? { location: {
+                ...priorSnapshot.location,
+                ...listing.location,
+                precision: listing.location?.precision ?? priorSnapshot.location?.precision ?? 'unknown',
+              } } : {}),
+            } : listing;
+            storage.recordObservation({ listingId: id, observedAt, sourceUrl, raw: listing, normalized: listing });
+            if (priorSnapshot) storage.upsertListing(normalized, observedAt);
             let kind: 'new_match' | 'price_change' | 'edited' | undefined;
             if (!priorSnapshot || latestChanges.get(id) === 'disappeared') kind = 'new_match';
-            else if (!sameSnapshot(priorSnapshot, listing)) kind = !sameSnapshot({ id, price: priorSnapshot.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
-            if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorSnapshot?.price ?? null, to: listing.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
+            else if (priorCard && !sameSnapshot(priorCard, listing)) kind = !sameSnapshot({ id, price: priorCard.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
+            if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorSnapshot?.price ?? null, to: normalized.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
           }
           for (const [id] of prior) if (!current.has(id) && latestChanges.get(id) !== 'disappeared' && storage.recordChange({ listingId: id, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) { changeCount++; latestChanges.set(id, 'disappeared'); }
           refreshedSearches++;
