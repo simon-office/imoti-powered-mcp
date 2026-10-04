@@ -123,6 +123,35 @@ test('search_listings preserves multiple property types and client-filters types
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('search_listings verifies matching requested deal and city filters', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    const server = createServer({ adapter, storage });
+    await withClient(server, async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia' }, limit: 10 } });
+      assert.equal(result.structuredContent.verification.ok, true);
+      assert.deepEqual(result.structuredContent.verification.mismatches, []);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search URL page budget applies across property types per district', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    const server = createServer({ adapter, storage });
+    await withClient(server, async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok'], propertyTypes: ['dvustaen', 'kashta'], maxPages: 2 }, limit: 10 } });
+      const urls = result.structuredContent.query.urls;
+      assert.equal(urls.length, 2);
+      assert.ok(urls.every(url => !url.includes('/p-')));
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('tool errors explain protective screens and unknown districts without stack traces', async () => {
   const storage = { listObservations: () => [], upsertListing() {}, recordObservation() {} };
   const blocked = createServer({ adapter: { fetchPage: async url => { throw new ProtectiveScreenError(url, 403); }, close: async () => {} }, storage });

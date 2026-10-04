@@ -69,7 +69,10 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           urls.push(url);
           const page = await adapter.fetchPage(url);
           const parsed = parseSearchResults(page.html, url);
-          const verification = verifyFilters(criteria, { listings: parsed.listings.map(item => ({
+          const verification = verifyFilters(criteria, { appliedFilters: {
+            deal: criteria.deal,
+            city: criteria.city,
+          }, listings: parsed.listings.map(item => ({
             dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType,
             price: item.price,
           })) });

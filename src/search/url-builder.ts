@@ -12,9 +12,14 @@ export function buildSearchUrls(criteria: SearchCriteria): { urls: string[]; cli
   const types = criteria.propertyTypes.length ? criteria.propertyTypes : [roomCount === undefined ? undefined : roomCountToPropertyType(roomCount)];
   const districts = criteria.districts.length ? criteria.districts.map(resolveDistrict) : [null];
   const urls: string[] = [];
-  for (const district of districts) for (const type of types) for (let page = 1; page <= criteria.maxPages; page++) {
-    const path = ['https://www.imot.bg/obiavi', criteria.deal === 'sale' ? 'prodazhbi' : 'naemi', 'grad-sofiya', district?.slug, type].filter(Boolean).join('/');
-    urls.push(`${path}${page > 1 ? `/p-${page}` : ''}${criteria.priceMax === undefined ? '' : `?price_max=${encodeURIComponent(String(criteria.priceMax))}`}`);
+  for (const district of districts) {
+    const pages = Array.from({ length: criteria.maxPages }, (_, index) => index + 1)
+      .flatMap(page => types.map(type => ({ type, page })))
+      .slice(0, criteria.maxPages);
+    for (const { type, page } of pages) {
+      const path = ['https://www.imot.bg/obiavi', criteria.deal === 'sale' ? 'prodazhbi' : 'naemi', 'grad-sofiya', district?.slug, type].filter(Boolean).join('/');
+      urls.push(`${path}${page > 1 ? `/p-${page}` : ''}${criteria.priceMax === undefined ? '' : `?price_max=${encodeURIComponent(String(criteria.priceMax))}`}`);
+    }
   }
   return { urls, clientFilters: { priceMin: criteria.priceMin, areaMin: criteria.areaMin, areaMax: criteria.areaMax } };
 }
