@@ -164,6 +164,36 @@ test('watched refresh persists only real changes and get_changes returns a safe 
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('first-seen watched listings have no fabricated earlier price history', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-first-observation-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    storage.saveSearch({ id: 'first-observation-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+    assert.deepEqual(storage.listObservations(), []);
+    assert.deepEqual(storage.listChanges(), []);
+    await withClient(createServer({ adapter, storage }), async client => {
+      const refreshed = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(refreshed.isError, undefined, refreshed.content?.[0]?.text);
+      const events = storage.listChanges();
+      assert.equal(events.length, 4);
+      for (const event of events) {
+        assert.equal(event.kind, 'new_match');
+        assert.deepEqual(event.data, {}, `${event.listingId}: first observation must not invent prior prices or history`);
+        assert.ok(storage.getListing(event.listingId).price, 'the first observed asking price is retained');
+        assert.ok(storage.listObservations(event.listingId).every(observation => observation.observedAt === event.occurredAt), 'history starts at the first observation');
+      }
+      const result = await client.callTool({ name: 'get_changes', arguments: {} });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.deepEqual(result.structuredContent.changes, events, 'get_changes exposes the persisted first-observation events');
+      const repeated = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(repeated.isError, undefined, repeated.content?.[0]?.text);
+      assert.equal(repeated.structuredContent.changes, 0);
+      assert.deepEqual(storage.listChanges(), events, 'repeat refresh leaves first-observation history unchanged');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('refresh records disappearance only after every search page completes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-disappeared-'));
   const storage = openStorage(join(directory, 'test.db'));
