@@ -19,7 +19,10 @@ export class FixtureAdapter implements SiteAdapter {
     const matched = this.mappings.find(([key]) => typeof key === 'string' ? key === url : key.test(url));
     if (!matched) throw new Error(`No fixture configured for ${url}`);
     const source = matched[1];
-    const html = new TextDecoder('windows-1251').decode(await readFile(source));
+    const bytes = await readFile(source);
+    let html: string;
+    try { html = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { html = new TextDecoder('windows-1251').decode(bytes); }
     return { url, status: 200, html, fetchedAt: new Date() };
   }
 
