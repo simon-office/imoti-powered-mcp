@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-const run = (args, dataDir) => spawnSync(process.execPath, [new URL('../dist/cli.js', import.meta.url).pathname, ...args], {
+const run = (args, dataDir) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', new URL('../dist/cli.js', import.meta.url).pathname, ...args], {
   encoding: 'utf8', env: { ...process.env, IMOTI_DATA_DIR: dataDir },
 });
 

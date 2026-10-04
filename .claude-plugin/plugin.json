@@ -2,5 +2,5 @@
   "name": "imoti-powered-mcp",
   "version": "0.1.0",
   "description": "A conversational assistant for Bulgarian property listings",
-  "author": "Simon Office"
+  "author": { "name": "Simon Office" }
 }
