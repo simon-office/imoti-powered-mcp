@@ -100,10 +100,11 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
     server.registerTool('refresh_watched', {
       description: 'Refresh saved searches and record observed listing changes.',
       inputSchema: {},
-      outputSchema: z.object({ refreshedSearches: z.number(), changes: z.number() }),
+      outputSchema: z.object({ refreshedSearches: z.number(), refreshedListings: z.number(), changes: z.number() }),
     }, async () => {
       try {
         let refreshedSearches = 0;
+        let refreshedListings = 0;
         let changeCount = 0;
         for (const saved of storage.listSearches()) {
           const criteria = searchCriteriaSchema.parse(saved.criteria);
@@ -157,7 +158,24 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           for (const [id] of prior) if (!current.has(id) && latestChanges.get(id) !== 'disappeared' && storage.recordChange({ listingId: id, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) { changeCount++; latestChanges.set(id, 'disappeared'); }
           refreshedSearches++;
         }
-        return { structuredContent: { refreshedSearches, changes: changeCount }, content: [{ type: 'text' as const, text: `Refreshed ${refreshedSearches} saved search${refreshedSearches === 1 ? '' : 'es'}; recorded ${changeCount} change${changeCount === 1 ? '' : 's'}.` }] };
+        for (const listingId of storage.listWatched()) {
+          const url = `https://www.imot.bg/obiava-${listingId}`;
+          const page = await adapter.fetchPage(url);
+          const parsed = parseListing(page.html, url);
+          const observedAt = page.fetchedAt.toISOString();
+          const listing: Listing = 'status' in parsed ? { id: listingId, status: 'not_available' } : { ...parsed, id: listingId, status: 'available' };
+          const previous = storage.getListing(listingId);
+          storage.upsertListing(listing, observedAt);
+          storage.recordObservation({ listingId, observedAt, sourceUrl: url, raw: listing, normalized: listing });
+          if (previous && !sameSnapshot(previous, listing)) {
+            const previousPrice = (previous.price as { amount?: unknown } | undefined)?.amount;
+            const currentPrice = (listing.price as { amount?: unknown } | undefined)?.amount;
+            const kind = previousPrice !== currentPrice ? 'price_change' : 'edited';
+            if (storage.recordChange({ listingId, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: previousPrice ?? null, to: currentPrice ?? null } : {} })) changeCount++;
+          }
+          refreshedListings++;
+        }
+        return { structuredContent: { refreshedSearches, refreshedListings, changes: changeCount }, content: [{ type: 'text' as const, text: `Refreshed ${refreshedSearches} saved search${refreshedSearches === 1 ? '' : 'es'} and ${refreshedListings} watched listing${refreshedListings === 1 ? '' : 's'}; recorded ${changeCount} change${changeCount === 1 ? '' : 's'}.` }] };
       } catch (error) { return toolError(error); }
     });
     const searchOutput = z.object({

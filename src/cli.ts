@@ -85,7 +85,7 @@ async function main() {
         process.stdout.write('ID | price | area | floor | district | seller kind | URL\n');
         for (const item of structured.listings) process.stdout.write(`${item.id} | ${item.price?.amount ?? 'unknown'} | ${item.areaM2 ?? 'unknown'} | ${item.floor ?? 'unknown'} | ${item.location?.district ?? 'unknown'} | ${item.seller?.kind ?? 'unknown'} | ${item.url ?? ''}\n`);
       } else if (parsed.command === 'listing') process.stdout.write(`${JSON.stringify(structured.listing, null, 2)}\n`);
-      else process.stdout.write(`Refreshed ${structured.refreshedSearches} saved search${structured.refreshedSearches === 1 ? '' : 'es'}; recorded ${structured.changes} change${structured.changes === 1 ? '' : 's'}.\n`);
+      else process.stdout.write(`Refreshed ${structured.refreshedSearches} saved search${structured.refreshedSearches === 1 ? '' : 'es'} and ${structured.refreshedListings} watched listing${structured.refreshedListings === 1 ? '' : 's'}; recorded ${structured.changes} change${structured.changes === 1 ? '' : 's'}.\n`);
     } finally { await client.close(); await server.close(); storage.close(); }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected error';

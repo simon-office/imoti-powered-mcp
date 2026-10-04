@@ -10,6 +10,7 @@ const run = (args, dataDir) => spawnSync(process.execPath, ['--disable-warning=E
 });
 
 const saveWatchedSearch = (dataDir, criteria) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.saveSearch({ id: 'cli-test-search', criteria: ${JSON.stringify(criteria)}, createdAt: new Date().toISOString() }); storage.close();`], { encoding: 'utf8' });
+const saveWatchedListing = (dataDir, listingId) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.watch(${JSON.stringify(listingId)}); storage.close();`], { encoding: 'utf8' });
 
 test('search command prints verification and persists structured results from fixtures', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
@@ -108,5 +109,19 @@ test('refresh command fails non-zero when fixture lookup fails', async () => {
     const result = run(['refresh', '--fixtures', emptyFixtures], join(directory, 'data'));
     assert.equal(result.status, 1);
     assert.match(result.stderr, /No fixture configured for/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh command fetches persisted watched listings without a saved search', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-watched-listing-'));
+  const dataDir = join(directory, 'data');
+  const listingId = '1c100000000000001';
+  try {
+    assert.equal(saveWatchedListing(dataDir, listingId).status, 0);
+    const result = run(['refresh', '--fixtures', new URL('./fixtures', import.meta.url).pathname], dataDir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /and 1 watched listing/i);
+    const observations = spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); console.log(storage.listObservations(${JSON.stringify(listingId)}).filter(item => new URL(item.sourceUrl).pathname.startsWith('/obiava-')).length); storage.close();`], { encoding: 'utf8' });
+    assert.equal(observations.stdout.trim(), '1');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
