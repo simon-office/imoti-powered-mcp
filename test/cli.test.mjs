@@ -59,6 +59,7 @@ test('fixture lookup failures return status 1 with a one-line error', async () =
   try {
     const result = run(['search', '--fixtures', emptyFixtures], join(directory, 'data'));
     assert.equal(result.status, 1);
+    assert.match(result.stderr, /No fixture configured for/);
     assert.equal(result.stderr.trim().split('\n').length, 1);
     assert.doesNotMatch(result.stderr, / at .*\.js:/);
   } finally { await rm(directory, { recursive: true, force: true }); }
