@@ -44,3 +44,16 @@ test('verifies breadcrumbs and all listing fields and reports mismatches', () =>
   assert.equal(result.ok, false);
   assert.deepEqual(result.mismatches.map(({ filter }) => filter), ['district', 'type', 'priceMax']);
 });
+
+test('verifies breadcrumb and listing type for rooms-only criteria', () => {
+  const criteria = searchCriteriaSchema.parse({ rooms: { min: 3, max: 3 } });
+  const page = {
+    appliedFilters: { deal: 'Продава', city: 'град София', type: '2-СТАЕН' },
+    listings: [{ propertyType: { label: '2-СТАЕН' } }],
+  };
+
+  const result = verifyFilters(criteria, page);
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.mismatches.map(({ filter }) => filter), ['type', 'type']);
+});

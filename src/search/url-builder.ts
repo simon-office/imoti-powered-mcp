@@ -22,14 +22,18 @@ export function buildSearchUrls(criteria: SearchCriteria): { urls: string[]; cli
 export function verifyFilters(criteria: SearchCriteria, page: SearchPageForVerification): { ok: boolean; mismatches: FilterMismatch[] } {
   const mismatches: FilterMismatch[] = [];
   const applied = page.appliedFilters ?? {};
+  const roomCount = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? criteria.rooms.min : undefined;
+  const expectedTypes = criteria.propertyTypes.length
+    ? criteria.propertyTypes
+    : roomCount === undefined ? [] : [roomCountToPropertyType(roomCount)];
   const check = (filter: string, expected: unknown, observed: unknown) => { if (expected !== undefined && !matches(filter, expected, observed)) mismatches.push({ filter, expected, observed: observed ?? null }); };
   check('deal', criteria.deal, applied.deal);
   check('city', criteria.city, applied.city);
   if (criteria.districts.length) check('district', criteria.districts.map((name) => resolveDistrict(name).slug), applied.district ? resolveDistrict(applied.district).slug : null);
-  if (criteria.propertyTypes.length) check('type', criteria.propertyTypes, applied.type);
+  if (expectedTypes.length) check('type', expectedTypes, applied.type);
   page.listings.forEach((listing) => {
     if (criteria.districts.length) check('district', criteria.districts.map((name) => resolveDistrict(name).slug), listing.location?.district ? resolveDistrict(listing.location.district).slug : null);
-    if (criteria.propertyTypes.length) check('type', criteria.propertyTypes, listing.propertyType?.label);
+    if (expectedTypes.length) check('type', expectedTypes, listing.propertyType?.label);
     if (criteria.priceMax !== undefined) check('priceMax', criteria.priceMax, listing.price?.amount);
   });
   return { ok: mismatches.length === 0, mismatches };
