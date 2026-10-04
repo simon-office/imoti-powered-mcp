@@ -66,7 +66,6 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         let truncated = false;
         const observedAt = new Date().toISOString();
         for (const url of built.urls) {
-          if (urls.length >= criteria.maxPages * Math.max(1, criteria.districts.length)) { truncated = true; break; }
           urls.push(url);
           const page = await adapter.fetchPage(url);
           const parsed = parseSearchResults(page.html, url);
@@ -82,12 +81,13 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             if (criteria.priceMax !== undefined && (item.price?.amount === undefined || item.price.amount > criteria.priceMax)) continue;
             if (criteria.areaMin !== undefined && (item.areaM2 === null || item.areaM2 < criteria.areaMin)) continue;
             if (criteria.areaMax !== undefined && (item.areaM2 === null || item.areaM2 > criteria.areaMax)) continue;
+            if (criteria.propertyTypes.length && !criteria.propertyTypes.some(type => matchesPropertyType(type, item.propertyType?.label))) continue;
+            if (criteria.rooms && (item.propertyType?.rooms === null || item.propertyType?.rooms === undefined || (criteria.rooms.min !== undefined && item.propertyType.rooms < criteria.rooms.min) || (criteria.rooms.max !== undefined && item.propertyType.rooms > criteria.rooms.max))) continue;
             if (!listings.has(item.id)) {
               listings.set(item.id, { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' });
               sourceUrls.set(item.id, url);
             }
           }
-          if (parsed.nextPageUrl === null && urls.length >= 1) break;
           if (listings.size >= limit) { truncated = true; break; }
         }
         const results = [...listings.values()].slice(0, limit);
@@ -107,9 +107,12 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       outputSchema: z.object({ listing: z.record(z.string(), z.unknown()), observedAt: z.string(), cached: z.boolean() }),
     }, async ({ id, url, refresh }) => {
       try {
-        const listingId = id ?? url?.match(/obiava-([^-/]+)/i)?.[1];
+        const urlMatch = url === undefined ? undefined : parseCanonicalListingUrl(url);
+        if (url !== undefined && !urlMatch) return { isError: true, content: [{ type: 'text' as const, text: 'Listing URL must be an HTTPS https://www.imot.bg/obiava-<id>-... URL.' }] };
+        if (id !== undefined && urlMatch !== undefined && id !== urlMatch.id) return { isError: true, content: [{ type: 'text' as const, text: 'The supplied id must match the listing URL.' }] };
+        const listingId = id ?? urlMatch?.id;
         if (!listingId) return { isError: true, content: [{ type: 'text' as const, text: 'Provide a listing id or imot.bg listing URL.' }] };
-        const canonicalUrl = url ?? `https://www.imot.bg/obiava-${listingId}`;
+        const canonicalUrl = urlMatch?.url ?? `https://www.imot.bg/obiava-${listingId}`;
         const observations = storage.listObservations(listingId);
         const latest = observations.at(-1);
         if (!refresh && latest && Date.now() - Date.parse(latest.observedAt) < 6 * 60 * 60 * 1000) {
@@ -129,6 +132,25 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
   }
 
   return server;
+}
+
+function parseCanonicalListingUrl(value: string): { id: string; url: string } | undefined {
+  try {
+    const parsed = new URL(value);
+    const match = parsed.pathname.match(/^\/obiava-([^/]+)$/i);
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'www.imot.bg' || parsed.port || parsed.username || parsed.password || parsed.search || parsed.hash || !match) return undefined;
+    const id = match[1].match(/^([^-]+)/)?.[1];
+    if (!id) return undefined;
+    return { id, url: `https://www.imot.bg${parsed.pathname}` };
+  } catch { return undefined; }
+}
+
+function matchesPropertyType(requested: string, observed?: string | null): boolean {
+  if (!observed) return false;
+  const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9а-я]/gi, '');
+  const labels: Record<string, string> = { ednostaen: '1стаен', dvustaen: '2стаен', tristaen: '3стаен', chetiristaen: '4стаен', mnogostaen: '5стаен' };
+  const actual = normalize(observed);
+  return actual.includes(normalize(requested)) || (labels[requested] !== undefined && actual.includes(normalize(labels[requested])));
 }
 
 function toolError(error: unknown) {

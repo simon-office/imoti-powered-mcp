@@ -89,6 +89,40 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('get_listing rejects non-canonical hosts and mismatched ids before fetching', async () => {
+  const storage = { listObservations: () => [], upsertListing() {}, recordObservation() {} };
+  const requests = [];
+  const server = createServer({ adapter: { fetchPage: async url => { requests.push(url); throw new Error('unexpected fetch'); } }, storage });
+  await withClient(server, async client => {
+    for (const args of [
+      { url: 'https://example.com/obiava-1c100000000000001-fake', refresh: true },
+      { url: 'http://www.imot.bg/obiava-1c100000000000001-fake', refresh: true },
+      { id: '1c100000000000002', url: 'https://www.imot.bg/obiava-1c100000000000001-fake', refresh: true },
+    ]) {
+      const result = await client.callTool({ name: 'get_listing', arguments: args });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /https:\/\/www\.imot\.bg|match/i);
+    }
+    assert.deepEqual(requests, []);
+  });
+});
+
+test('search_listings preserves multiple property types and client-filters types and room ranges', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    const server = createServer({ adapter, storage });
+    await withClient(server, async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { propertyTypes: ['dvustaen', 'kashta'], rooms: { min: 2, max: 4 } }, limit: 10 } });
+      assert.ok(result.structuredContent.query.urls.some(url => url.includes('/dvustaen')));
+      assert.ok(result.structuredContent.query.urls.some(url => url.includes('/kashta')));
+      assert.ok(result.structuredContent.listings.every(listing => ['2-СТАЕН', 'Къща'].includes(listing.propertyType?.label)));
+      assert.ok(result.structuredContent.listings.every(listing => listing.propertyType?.rooms >= 2 && listing.propertyType?.rooms <= 4));
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('tool errors explain protective screens and unknown districts without stack traces', async () => {
   const storage = { listObservations: () => [], upsertListing() {}, recordObservation() {} };
   const blocked = createServer({ adapter: { fetchPage: async url => { throw new ProtectiveScreenError(url, 403); }, close: async () => {} }, storage });

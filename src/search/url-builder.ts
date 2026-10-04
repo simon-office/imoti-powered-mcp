@@ -9,10 +9,10 @@ export type FilterMismatch = { filter: string; expected: unknown; observed: unkn
 
 export function buildSearchUrls(criteria: SearchCriteria): { urls: string[]; clientFilters: { priceMin?: number; areaMin?: number; areaMax?: number } } {
   const roomCount = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? criteria.rooms.min : undefined;
-  const type = criteria.propertyTypes[0] ?? (roomCount === undefined ? undefined : roomCountToPropertyType(roomCount));
+  const types = criteria.propertyTypes.length ? criteria.propertyTypes : [roomCount === undefined ? undefined : roomCountToPropertyType(roomCount)];
   const districts = criteria.districts.length ? criteria.districts.map(resolveDistrict) : [null];
   const urls: string[] = [];
-  for (const district of districts) for (let page = 1; page <= criteria.maxPages; page++) {
+  for (const district of districts) for (const type of types) for (let page = 1; page <= criteria.maxPages; page++) {
     const path = ['https://www.imot.bg/obiavi', criteria.deal === 'sale' ? 'prodazhbi' : 'naemi', 'grad-sofiya', district?.slug, type].filter(Boolean).join('/');
     urls.push(`${path}${page > 1 ? `/p-${page}` : ''}${criteria.priceMax === undefined ? '' : `?price_max=${encodeURIComponent(String(criteria.priceMax))}`}`);
   }
