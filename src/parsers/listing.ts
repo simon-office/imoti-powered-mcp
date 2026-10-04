@@ -68,7 +68,8 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const amount = numeric(offer?.price != null ? String(offer.price) : priceText);
   const areaText = param(document, /^Площ/i);
   const floorText = param(document, /^Етаж/i);
-  const floorMatch = floorText?.match(/(\d+)[-–]?(?:ти|ри|ви)?\s*(?:от\s*(\d+))?/i);
+  const floorMatch = floorText?.match(/(Партер|\d+\s*[-–]?\s*(?:ви|ри|ти|ми))\s*(?:от\s*(\d+))?/i);
+  const floorNumber = floorMatch?.[1]?.match(/\d+/)?.[0];
   const constructionText = param(document, /^Строителство/i);
   const descriptionNode = document.querySelector('.moreInfo > .text') ?? document.querySelector('.description') ?? document.querySelector('.adDescription');
   const description = descriptionNode?.innerHTML ? descriptionNode.innerHTML.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() : null;
@@ -94,7 +95,7 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
     id, url: url ?? null, title, dealType: /наем|отдава/i.test(title ?? '') ? 'rent' : /продава|продаж/i.test(title ?? '') || /продаж/i.test(crumbs[1] ?? '') ? 'sale' : 'unknown',
     propertyType: typeMatch ? { label: typeMatch[1].replace(/\s+/g, ''), rooms: Number(typeMatch[1].match(/\d+/)?.[0]) || null } : null,
     price: amount !== null && currency ? { amount, currency } : null, pricePerM2, priceLowered: lowered,
-    areaM2: numeric(areaText?.match(/[\d\s,.]+/)?.[0]), floor: floorMatch ? Number(floorMatch[1]) : null, floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
+    areaM2: numeric(areaText?.match(/[\d\s,.]+/)?.[0]), floor: floorMatch ? (floorNumber ? Number(floorNumber) : 0) : null, floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
     gas: truth(param(document, /^Газ/i)), districtHeating: truth(param(document, /^Т[ЕE]Ц/i)), construction, constructionPeriod: period, description,
     location, photos, seller: { kind: /частно лице|частен продавач/i.test(`${sellerType} ${sellerName}`) ? 'private' : sellerName ? 'agency' : 'unknown', name: sellerName }, vatNote,
     appliedFilters: { deal: crumbs[1] ?? null, city: crumbs[2] ?? null, district: crumbs[3] ?? null, type: crumbs[4] ?? null },

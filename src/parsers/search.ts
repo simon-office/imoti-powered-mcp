@@ -16,7 +16,7 @@ export type ListingSummary = {
   location: { city: string | null; district: string | null; raw: string | null };
   seller: { kind: 'agency' | 'private' | 'unknown'; name: string | null };
   photoCount: number | null;
-  promoted: boolean;
+  promotedTier: 'BEST' | 'TOP' | 'VIP' | null;
   thumbnailUrl: string | null;
 };
 
@@ -54,7 +54,10 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
   const amount = priceText ? Number(priceText.replace(/[^\d]/g, '')) : NaN;
   const priceCurrency = priceText?.includes('€') ? 'EUR' : priceText?.includes('$') ? 'USD' : priceText?.includes('лв') ? 'BGN' : null;
   const typeMatch = title?.match(/(\d+\s*[-–]?\s*СТАЕН)/i);
-  const floorMatch = info.match(/(\d+)[-–]?(?:ти|ри|ви)?\s*ет\.?\s*(?:от\s*(\d+))?/i);
+  const floorMatch = info.match(/(Партер|\d+\s*[-–]?\s*(?:ви|ри|ти|ми))(?:\s*ет\.?)*\s*(?:от\s*(\d+))?/i);
+  const floorNumber = floorMatch?.[1]?.match(/\d+/)?.[0];
+  const promoAsset = item.querySelector('img.promoLine')?.getAttribute('src') ?? '';
+  const promoTier = (['BEST', 'TOP', 'VIP'] as const).find((tier) => item.classNames.includes(tier) || new RegExp(`${tier}-wrap\\.svg`, 'i').test(promoAsset)) ?? null;
   const areaMatch = info.match(/([\d\s]+)\s*(?:кв\.?\s*м|м²)/i);
   const heat = info.match(/(ТЕЦ|Газ|Климатик)/i)?.[1] ?? null;
   const construction = info.match(/(Тухла|Панел|ЕПК)/i)?.[1] ?? null;
@@ -73,13 +76,13 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
     price: Number.isFinite(amount) && priceCurrency ? { amount, currency: priceCurrency } : null,
     priceLowered: item.querySelector('.price.DOWN') !== null,
     areaM2: areaMatch ? Number(areaMatch[1].replace(/\s/g, '')) : null,
-    floor: floorMatch ? Number(floorMatch[1]) : null,
+    floor: floorMatch ? (floorNumber ? Number(floorNumber) : 0) : null,
     floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
     heating: heat, construction,
     location: { city: locationParts[0] || null, district: locationParts[1] || null, raw: rawLocation },
     seller: { kind: privateSeller ? 'private' : sellerName ? 'agency' : 'unknown', name: sellerName },
     photoCount: photoCountMatch ? Number(photoCountMatch[0]) : null,
-    promoted: item.classNames.includes('TOP') || item.querySelector('img.promoLine') !== null,
+    promotedTier: promoTier,
     thumbnailUrl: absoluteHttps(image?.getAttribute('src') ?? null, base),
   };
 }
@@ -87,14 +90,14 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
 export function parseSearchResults(input: string | Uint8Array, pageUrl = 'https://www.imot.bg/'): SearchPage {
   const html = typeof input === 'string' ? input : new TextDecoder('windows-1251').decode(input);
   const document = parse(html);
-  const listings: ListingSummary[] = document.querySelectorAll('div.item').map((item) => {
+  const listings: ListingSummary[] = document.querySelectorAll('div.item').filter((item) => /^ida.+/.test(item.getAttribute('id') ?? '')).map((item) => {
     try { return parseItem(item, pageUrl); }
     catch {
       return {
         id: null, url: null, title: null, dealType: 'unknown', propertyType: null, price: null, priceLowered: false,
         areaM2: null, floor: null, floorsTotal: null, heating: null, construction: null,
         location: { city: null, district: null, raw: null }, seller: { kind: 'unknown', name: null },
-        photoCount: null, promoted: false, thumbnailUrl: null,
+        photoCount: null, promotedTier: null, thumbnailUrl: null,
       };
     }
   });
