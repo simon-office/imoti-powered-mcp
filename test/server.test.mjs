@@ -111,13 +111,14 @@ test('search visits every requested district even when the first district reache
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
   const adapter = new FixtureAdapter([
-    [/iztok/, new URL('./fixtures/search-iztok-matching.html', import.meta.url)],
+    [/iztok/, new URL('./fixtures/search-iztok-limit.html', import.meta.url)],
     [/lozenets/, new URL('./fixtures/search-lozenets-matching.html', import.meta.url)],
   ]);
   try {
     await withClient(createServer({ adapter, storage }), async client => {
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'] }, limit: 10 } });
       assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.equal(result.structuredContent.listings.length, 10, 'the first district alone must fill the shared result limit');
       assert.equal(adapter.requests.length, result.structuredContent.query.urls.length);
       assert.ok(result.structuredContent.query.urls.some(url => url.includes('/iztok/')));
       assert.ok(result.structuredContent.query.urls.some(url => url.includes('/lozenets/')));
