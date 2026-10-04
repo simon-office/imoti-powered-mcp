@@ -139,6 +139,151 @@ test('memory tools reject invalid inputs', async () => {
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('watched refresh persists only real changes and get_changes returns a safe digest', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-refresh-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    storage.saveSearch({ id: 'refresh-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+    await withClient(createServer({ adapter, storage }), async client => {
+      const tools = await client.listTools();
+      assert.ok(tools.tools.some(tool => tool.name === 'get_changes'));
+      const refreshed = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(refreshed.isError, undefined, refreshed.content?.[0]?.text);
+      const events = storage.listChanges();
+      assert.ok(events.every(event => event.kind === 'new_match'));
+      assert.equal(events.length, 4);
+      const repeated = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(repeated.structuredContent.changes, 0);
+      assert.equal(storage.listChanges().length, 4, 'identical repeated refreshes must not write duplicate events');
+      const changes = await client.callTool({ name: 'get_changes', arguments: { limit: 1 } });
+      assert.equal(changes.structuredContent.changes.length, 1);
+      assert.match(changes.structuredContent.digest, /1c100000000000001.*new_match/);
+      assert.doesNotMatch(changes.structuredContent.digest, /sold|transaction/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('first-seen watched listings have no fabricated earlier price history', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-first-observation-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    storage.saveSearch({ id: 'first-observation-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+    assert.deepEqual(storage.listObservations(), []);
+    assert.deepEqual(storage.listChanges(), []);
+    await withClient(createServer({ adapter, storage }), async client => {
+      const refreshed = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(refreshed.isError, undefined, refreshed.content?.[0]?.text);
+      const events = storage.listChanges();
+      assert.equal(events.length, 4);
+      for (const event of events) {
+        assert.equal(event.kind, 'new_match');
+        assert.deepEqual(event.data, {}, `${event.listingId}: first observation must not invent prior prices or history`);
+        assert.ok(storage.getListing(event.listingId).price, 'the first observed asking price is retained');
+        assert.ok(storage.listObservations(event.listingId).every(observation => observation.observedAt === event.occurredAt), 'history starts at the first observation');
+      }
+      const result = await client.callTool({ name: 'get_changes', arguments: {} });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.deepEqual(result.structuredContent.changes, events, 'get_changes exposes the persisted first-observation events');
+      const repeated = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(repeated.isError, undefined, repeated.content?.[0]?.text);
+      assert.equal(repeated.structuredContent.changes, 0);
+      assert.deepEqual(storage.listChanges(), events, 'repeat refresh leaves first-observation history unchanged');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh records disappearance only after every search page completes', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-disappeared-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  let mode = 'normal';
+  const adapter = {
+    async fetchPage(url) {
+      if (mode === 'failure') throw new Error('fixture fetch failed');
+      const fixture = mode === 'empty' ? './fixtures/search-empty.html' : './fixtures/search-normal.html';
+      return { url, status: 200, html: await readFile(new URL(fixture, import.meta.url), 'utf8'), fetchedAt: new Date() };
+    },
+    async close() {},
+  };
+  storage.saveSearch({ id: 'disappearance-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      mode = 'failure';
+      const failed = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(failed.isError, true);
+      assert.equal(storage.listChanges().filter(event => event.kind === 'disappeared').length, 0);
+      mode = 'empty';
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      const disappeared = storage.listChanges().filter(event => event.kind === 'disappeared');
+      assert.equal(disappeared.length, 4);
+      assert.ok(disappeared.every(event => event.data.status === 'no longer observed'));
+      assert.ok(disappeared.every(event => !/sold/i.test(JSON.stringify(event))));
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(storage.listChanges().filter(event => event.kind === 'disappeared').length, 4, 'repeated absence must not duplicate events');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('refresh classifies price and non-price normalized snapshot edits', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-edits-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  let html = await readFile(new URL('./fixtures/search-normal.html', import.meta.url), 'utf8');
+  const adapter = { async fetchPage(url) { return { url, status: 200, html, fetchedAt: new Date() }; }, async close() {} };
+  storage.saveSearch({ id: 'edit-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      html = html.replace('125 000 €', '124 000 €');
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(storage.listChanges().filter(event => event.kind === 'price_change').length, 1);
+      html = html.replace('Продава 3-СТАЕН', 'Продава 3-СТАЕН редактиран');
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(storage.listChanges().filter(event => event.kind === 'edited').length, 1);
+      const invalid = await client.callTool({ name: 'get_changes', arguments: { since: 'yesterday' } });
+      assert.equal(invalid.isError, true);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('watched refresh preserves fetched listing details when search-card data is unchanged', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-detail-refresh-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const id = '1c100000000000001';
+  const detailUrl = `https://www.imot.bg/obiava-${id}-test`;
+  let changedCard = false;
+  const adapter = {
+    async fetchPage(url) {
+      const fixture = url === detailUrl ? './fixtures/listing-street.html' : './fixtures/search-normal.html';
+      let html = await readFile(new URL(fixture, import.meta.url), 'utf8');
+      if (changedCard && url !== detailUrl) html = html.replace('125 000 €', '124 000 €');
+      return { url, status: 200, html, fetchedAt: new Date() };
+    },
+    async close() {},
+  };
+  storage.saveSearch({ id: 'detail-refresh-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const detail = await client.callTool({ name: 'get_listing', arguments: { url: detailUrl, refresh: true } });
+      assert.equal(detail.isError, undefined, detail.content?.[0]?.text);
+      const original = storage.getListing(id);
+      assert.ok(original);
+
+      changedCard = true;
+      const refreshed = await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(refreshed.isError, undefined, refreshed.content?.[0]?.text);
+      const afterRefresh = storage.getListing(id);
+      assert.equal(afterRefresh.description, original.description);
+      assert.deepEqual(afterRefresh.photos, original.photos);
+      assert.equal(afterRefresh.location.street, original.location.street);
+      assert.equal(afterRefresh.gas, original.gas);
+      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'edited').length, 0);
+      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'price_change').length, 1);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('get_listing fetches after a search-card observation instead of treating it as detail cache', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
