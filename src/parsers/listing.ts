@@ -53,12 +53,13 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const breadcrumb = ld.find((entry) => entry['@type'] === 'BreadcrumbList');
   const crumbs: string[] = (breadcrumb?.itemListElement ?? []).map((entry: any) => String(entry.item?.name ?? entry.name ?? '').trim());
   const headerTitle = clean(document.querySelector('.advHeader .title'));
-  const structuredName = typeof offer?.name === 'string' ? offer.name : typeof offer?.itemOffered?.name === 'string' ? offer.itemOffered.name : null;
-  const title = structuredName ?? headerTitle;
+  const title = headerTitle;
   const typeMatch = title?.match(/(\d+\s*[-–]?\s*СТАЕН|МЕЗОНЕТ|АТЕЛИЕ|КЪЩА|ОФИС)/i);
   const locationNode = document.querySelector('.advHeader .location');
-  const titleLocation = (locationNode?.innerHTML.replace(/<br\s*\/?\s*>/gi, ',') ?? locationNode?.textContent ?? '').split(',').map((part) => part.replace(/<[^>]*>/g, '').trim()).filter(Boolean);
-  const street = titleLocation.find((part) => /^(ул\.|бул\.|улица|булевард)\s/i.test(part)) ?? null;
+  const streetNode = locationNode?.querySelector(':scope > div');
+  const locationParts = (locationNode?.childNodes ?? []).filter((node) => node !== streetNode).map((node) => node.textContent ?? '').join(' ').split(/[,\n]/).map((part) => part.trim()).filter(Boolean);
+  const titleLocation = locationParts;
+  const street = clean(streetNode) ?? titleLocation.find((part) => /^(ул\.|бул\.|улица|булевард)\s/i.test(part)) ?? null;
   const city = titleLocation[0] && !/^(ул\.|бул\.)/i.test(titleLocation[0]) ? titleLocation[0] : null;
   const district = titleLocation.find((part, index) => index > 0 && part !== street && !/^(ул\.|бул\.)/i.test(part)) ?? null;
   const location = { city, district, street, precision: (street ? 'street' : district ? 'neighbourhood' : 'unknown') as ListingDetails['location']['precision'] };
@@ -69,7 +70,7 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const floorText = param(document, /^Етаж/i);
   const floorMatch = floorText?.match(/(\d+)[-–]?(?:ти|ри|ви)?\s*(?:от\s*(\d+))?/i);
   const constructionText = param(document, /^Строителство/i);
-  const descriptionNode = document.querySelector('.description') ?? document.querySelector('.adDescription');
+  const descriptionNode = document.querySelector('.moreInfo > .text') ?? document.querySelector('.description') ?? document.querySelector('.adDescription');
   const description = descriptionNode?.innerHTML ? descriptionNode.innerHTML.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() : null;
   const photosRaw = offer?.itemOffered?.image ?? offer?.image;
   const photoValues = photosRaw == null
@@ -79,18 +80,23 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const sellerName = clean(document.querySelector('.dealer2023 .name'));
   const sellerType = clean(document.querySelector('.dealer2023 .sellerType'));
   const lowered = document.querySelector('.adPrice .price.DOWN') !== null;
-  const pricePerM2 = numeric(clean(document.querySelector('.pricePerM2')) ?? clean(document.querySelector('.adPrice'))?.match(/[\d\s]+\s*€\s*\/\s*м²/i)?.[0]);
+  const perAreaText = clean(document.querySelector('.adPrice .price > span')) ?? clean(document.querySelector('.pricePerM2')) ?? clean(document.querySelector('.adPrice'))?.match(/[\d\s,.]+\s*€\s*\/\s*[mм]²/i)?.[0];
+  const pricePerM2 = numeric(perAreaText?.match(/[\d\s,.]+/)?.[0]);
   const info = clean(document.querySelector('.adPrice .info'));
-  const vatNote = info && /ддс|vat/i.test(info) ? info : null;
-  const construction = constructionText?.split(',')[0]?.trim() ?? null;
-  const period = constructionText?.match(/Въведен в експлоатация\s*(.+)$/i)?.[1]?.trim() ?? null;
+  const priceBlock = document.querySelector('.adPrice .price');
+  const vatBlock = priceBlock?.childNodes.find((node) => node.nodeType === 1 && (node as HTMLElement).tagName === 'DIV' && /ддс|vat/i.test(node.textContent));
+  const vatNote = clean(vatBlock as HTMLElement | undefined) ?? (info?.match(/[^.]*ддс[^.]*(?:\.|$)/i)?.[0]?.trim() ?? null);
+  const constructionBlock = document.querySelectorAll('.adParams > div').find((block) => /Строителство/i.test(block.textContent));
+  const constructionStrong = constructionBlock?.querySelectorAll('strong') ?? [];
+  const construction = (clean(constructionStrong[0])?.replace(/,\s*$/, '') ?? constructionText)?.split(',')[0]?.trim() ?? null;
+  const period = clean(constructionStrong[1]) ?? constructionText?.match(/Въведен в експлоатация\s*(.+)$/i)?.[1]?.trim() ?? null;
   return {
-    id, url: url ?? null, title, dealType: /наем|отдава/i.test(title ?? '') ? 'rent' : /продава|продаж/i.test(title ?? '') || /продаж/i.test(crumbs[0] ?? '') ? 'sale' : 'unknown',
+    id, url: url ?? null, title, dealType: /наем|отдава/i.test(title ?? '') ? 'rent' : /продава|продаж/i.test(title ?? '') || /продаж/i.test(crumbs[1] ?? '') ? 'sale' : 'unknown',
     propertyType: typeMatch ? { label: typeMatch[1].replace(/\s+/g, ''), rooms: Number(typeMatch[1].match(/\d+/)?.[0]) || null } : null,
     price: amount !== null && currency ? { amount, currency } : null, pricePerM2, priceLowered: lowered,
-    areaM2: numeric(areaText), floor: floorMatch ? Number(floorMatch[1]) : null, floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
-    gas: truth(param(document, /^Газ/i)), districtHeating: truth(param(document, /^ТЕЦ/i)), construction, constructionPeriod: period, description,
+    areaM2: numeric(areaText?.match(/[\d\s,.]+/)?.[0]), floor: floorMatch ? Number(floorMatch[1]) : null, floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
+    gas: truth(param(document, /^Газ/i)), districtHeating: truth(param(document, /^Т[ЕE]Ц/i)), construction, constructionPeriod: period, description,
     location, photos, seller: { kind: /частно лице|частен продавач/i.test(`${sellerType} ${sellerName}`) ? 'private' : sellerName ? 'agency' : 'unknown', name: sellerName }, vatNote,
-    appliedFilters: { deal: crumbs[0] ?? null, city: crumbs[1] ?? null, district: crumbs[2] ?? null, type: crumbs[3] ?? null },
+    appliedFilters: { deal: crumbs[1] ?? null, city: crumbs[2] ?? null, district: crumbs[3] ?? null, type: crumbs[4] ?? null },
   };
 }
