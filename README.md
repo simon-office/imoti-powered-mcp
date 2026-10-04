@@ -2,7 +2,10 @@
 
 A conversational assistant that searches imot.bg, evaluates properties and remembers what matters to the user. Describe the desired home in plain language; the assistant chooses filters, finds listings, reviews their photos and location, and explains its shortlist.
 
-**Status: stage 1, in development.**
+**Status: stage 2, in development (memory and monitoring).**
+
+To refresh locally saved searches and watched listings while no chat session is open, run `npm run refresh --` from the
+repository. See [`docs/live-check.md`](docs/live-check.md) for the owner live-check procedure and safe reporting guidance.
 
 ## Quick start
 
