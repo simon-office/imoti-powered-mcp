@@ -110,3 +110,9 @@ test('parses a ground-floor listing and keeps a missing floor null', () => {
   assert.equal(noFloor.floor, null);
   assert.equal(noFloor.floorsTotal, null);
 });
+
+test('parses every documented floor ordinal suffix on listing pages', () => {
+  const floors = ['1-ви', '2-ри', '3-ти', '8-ми'];
+  const parsed = floors.map((floor) => parseListing(`<div class="adPrice"><div class="price"></div></div><div class="adParams"><div>Етаж<br><strong>${floor} от 10</strong></div></div>`));
+  assert.deepEqual(parsed.map(({ floor, floorsTotal }) => [floor, floorsTotal]), [[1, 10], [2, 10], [3, 10], [8, 10]]);
+});

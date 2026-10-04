@@ -51,6 +51,14 @@ test('parses each paid promotion tier from card classes and promo assets', async
   assert.equal(page.listings[0].floorsTotal, 2);
 });
 
+test('parses every documented floor ordinal suffix on search cards', () => {
+  const html = ['1-ви', '2-ри', '3-ти', '7-ми']
+    .map((floor, index) => `<div class="item" id="ida${index + 1}"><div class="info">${floor} ет. от 8</div></div>`)
+    .join('');
+  const page = parseSearchResults(html);
+  assert.deepEqual(page.listings.map(({ floor, floorsTotal }) => [floor, floorsTotal]), [[1, 8], [2, 8], [3, 8], [7, 8]]);
+});
+
 test('decodes windows-1251 result bytes', async () => {
   const bytes = await readFile(new URL('../fixtures/search-windows-1251.html', import.meta.url));
   const page = parseSearchResults(bytes);
