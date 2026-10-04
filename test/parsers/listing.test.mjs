@@ -15,7 +15,7 @@ test('parses full street-level listing details and structured Offer fields', asy
   assert.equal(result.pricePerM2, 1524);
   assert.equal(result.priceLowered, false);
   assert.equal(result.areaM2, 82);
-  assert.equal(result.floor, 4);
+  assert.equal(result.floor, 8);
   assert.equal(result.floorsTotal, 8);
   assert.equal(result.gas, true);
   assert.equal(result.districtHeating, false);
@@ -99,4 +99,14 @@ test('decodes listing HTML supplied as windows-1251 bytes', async () => {
   assert.deepEqual(result.seller, { kind: 'unknown', name: null });
   assert.equal(result.vatNote, null);
   assert.deepEqual(result.appliedFilters, { deal: null, city: null, district: null, type: null });
+});
+
+test('parses a ground-floor listing and keeps a missing floor null', () => {
+  const html = '<div class="adPrice"><div class="price"></div></div><div class="adParams"><div>Етаж<br><strong>Партер</strong></div></div>';
+  const result = parseListing(html);
+  assert.equal(result.floor, 0);
+  assert.equal(result.floorsTotal, null);
+  const noFloor = parseListing('<div class="adPrice"><div class="price"></div></div><div class="adParams"></div>');
+  assert.equal(noFloor.floor, null);
+  assert.equal(noFloor.floorsTotal, null);
 });

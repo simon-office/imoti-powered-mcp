@@ -17,16 +17,22 @@ test('parses the synthetic result items and every listing summary field', async 
     propertyType: { label: '3-СТАЕН', rooms: 3 }, price: { amount: 125000, currency: 'EUR' }, priceLowered: false,
     areaM2: 82, floor: 4, floorsTotal: 8, heating: 'ТЕЦ', construction: 'Тухла',
     location: { city: 'град София', district: 'Изток', raw: 'град София, Изток' },
-    seller: { kind: 'agency', name: 'Агенция Пример' }, photoCount: 3, promoted: true,
+    seller: { kind: 'agency', name: 'Агенция Пример' }, photoCount: 3, promotedTier: 'BEST',
     thumbnailUrl: 'https://www.imot.bg/fake-thumb-1.jpg',
   });
   assert.equal(page.listings[1].priceLowered, true);
+  assert.equal(page.listings[1].floor, 7);
+  assert.equal(page.listings[1].floorsTotal, 8);
   assert.deepEqual(page.listings[2].seller, { kind: 'private', name: 'Частно лице' });
+  assert.equal(page.listings[2].floor, 0);
+  assert.equal(page.listings[2].floorsTotal, 3);
+  assert.equal(page.listings[3].promotedTier, null);
+  assert.deepEqual(page.listings.map(({ promotedTier }) => promotedTier), ['BEST', 'TOP', 'VIP', null]);
   assert.equal(page.listings[3].thumbnailUrl, null);
   assert.equal(page.listings[3].photoCount, 0);
 });
 
-test('supports empty and final result pages and malformed items', async () => {
+test('supports empty and final result pages and skips news or malformed items without listing ids', async () => {
   const empty = parseSearchResults(await fixture('search-empty.html'));
   assert.deepEqual(empty.listings, []);
   assert.equal(empty.nextPageUrl, null);
@@ -35,10 +41,14 @@ test('supports empty and final result pages and malformed items', async () => {
   assert.equal(last.pageNumber, 3);
   assert.equal(last.nextPageUrl, null);
   const malformed = parseSearchResults('<div class="item"><div class="zaglavie"></div></div>');
-  assert.equal(malformed.listings.length, 1);
-  assert.equal(malformed.listings[0].id, null);
-  assert.equal(malformed.listings[0].url, null);
-  assert.equal(malformed.listings[0].price, null);
+  assert.equal(malformed.listings.length, 0);
+});
+
+test('parses each paid promotion tier from card classes and promo assets', async () => {
+  const page = parseSearchResults('<div class="item BEST" id="ida1"><img class="promoLine" src="BEST-wrap.svg"><div class="info">1-ви ет. от 2</div></div><div class="item TOP" id="ida2"><img class="promoLine" src="TOP-wrap.svg"></div><div class="item VIP" id="ida3"><img class="promoLine" src="VIP-wrap.svg"></div><div class="item" id="ida4"></div>');
+  assert.deepEqual(page.listings.map(({ promotedTier }) => promotedTier), ['BEST', 'TOP', 'VIP', null]);
+  assert.equal(page.listings[0].floor, 1);
+  assert.equal(page.listings[0].floorsTotal, 2);
 });
 
 test('decodes windows-1251 result bytes', async () => {
