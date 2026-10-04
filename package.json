@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.3.0",
+    "node-html-parser": "^9.0.4",
     "zod": "^4.6.5"
   }
 }
