@@ -9,7 +9,7 @@ export const MIN_REQUEST_DELAY_MS = 2000;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 export function hasProtectiveScreen(status: number, title: string, body: string): boolean {
-  return status === 403 || /just a moment/i.test(title) || /cloudflare|captcha/i.test(body);
+  return status === 403 || /just a moment/i.test(title) || (body.length < 10_000 && /cloudflare|captcha/i.test(body));
 }
 
 export function requestDelay(configured = MIN_REQUEST_DELAY_MS): number {

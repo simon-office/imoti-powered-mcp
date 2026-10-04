@@ -24,10 +24,12 @@ test('protective screens are detected from status, title, and body markers', () 
   assert.equal(hasProtectiveScreen(403, '<title>Example</title>', 'ok'), true);
   assert.equal(hasProtectiveScreen(200, '<title>Just a moment…</title>', 'ordinary'), true);
   assert.equal(hasProtectiveScreen(200, '<title>Example</title>', 'Enable Cloudflare captcha'), true);
+  assert.equal(hasProtectiveScreen(200, '<title>Example</title>', `ordinary ${'content '.repeat(1500)}cloudflare captcha`), false);
   assert.equal(hasProtectiveScreen(200, '<title>Example</title>', 'ordinary page'), false);
   const error = new ProtectiveScreenError('https://fake.test', 403);
   assert.match(error.message, /visible mode/i);
   assert.equal(error.url, 'https://fake.test');
+  assert.match(error.howToContinue, /IMOTI_VISIBLE=1/);
 });
 
 test('request delay and page capacity enforce their minimums and limits', () => {
