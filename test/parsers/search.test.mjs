@@ -10,7 +10,7 @@ test('parses the synthetic result items and every listing summary field', async 
   const page = parseSearchResults(html, 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/tristaen');
   assert.equal(page.listings.length, 4);
   assert.equal(page.pageNumber, 1);
-  assert.equal(page.totalCount, 4);
+  assert.equal(page.totalCount, null);
   assert.equal(page.nextPageUrl, 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/tristaen/p-2');
   assert.deepEqual(page.listings[0], {
     id: '1c100000000000001', url: 'https://www.imot.bg/obiava-1c100000000000001-izmislena-oferta', title: 'Продава 3-СТАЕН', dealType: 'sale',

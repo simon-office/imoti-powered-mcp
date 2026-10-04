@@ -104,6 +104,6 @@ export function parseSearchResults(input: string | Uint8Array, pageUrl = 'https:
     listings,
     nextPageUrl: absoluteHttps(next, pageUrl),
     pageNumber: pageMatch ? Number(pageMatch[1]) : 1,
-    totalCount: listings.length,
+    totalCount: listings.length === 0 ? 0 : null,
   };
 }
