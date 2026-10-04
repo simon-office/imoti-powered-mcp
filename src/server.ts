@@ -147,7 +147,11 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             if (priorSnapshot) storage.upsertListing(normalized, observedAt);
             let kind: 'new_match' | 'price_change' | 'edited' | undefined;
             if (!priorSnapshot || latestChanges.get(id) === 'disappeared') kind = 'new_match';
-            else if (priorCard && !sameSnapshot(priorCard, listing)) kind = !sameSnapshot({ id, price: priorCard.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
+            else {
+              const comparison = priorCard ?? priorSnapshot;
+              const cardChanged = !sameSnapshot(overlappingSnapshot(comparison, listing), overlappingSnapshot(listing, comparison));
+              if (cardChanged) kind = !sameSnapshot({ id, price: comparison.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
+            }
             if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorSnapshot?.price ?? null, to: normalized.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
           }
           for (const [id] of prior) if (!current.has(id) && latestChanges.get(id) !== 'disappeared' && storage.recordChange({ listingId: id, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) { changeCount++; latestChanges.set(id, 'disappeared'); }
@@ -258,6 +262,17 @@ function isDetailObservation(sourceUrl: string): boolean {
 function sameSnapshot(previous: Listing, current: Listing): boolean {
   const strip = (listing: Listing) => Object.fromEntries(Object.entries(listing).filter(([key]) => key !== 'firstObservedAt' && key !== 'lastObservedAt'));
   return JSON.stringify(sortObject(strip(previous))) === JSON.stringify(sortObject(strip(current)));
+}
+
+function overlappingSnapshot(previous: Listing, current: Listing): Listing {
+  const overlap = (prior: unknown, fetched: unknown): unknown => {
+    if (fetched && typeof fetched === 'object' && !Array.isArray(fetched)) {
+      const priorRecord = prior && typeof prior === 'object' && !Array.isArray(prior) ? prior as Record<string, unknown> : {};
+      return Object.fromEntries(Object.entries(fetched).filter(([key]) => key in priorRecord).map(([key, value]) => [key, overlap(priorRecord[key], value)]));
+    }
+    return prior;
+  };
+  return overlap(previous, current) as Listing;
 }
 
 function sortObject(value: unknown): unknown {

@@ -222,10 +222,16 @@ test('watched refresh preserves fetched listing details when search-card data is
   const storage = openStorage(join(directory, 'test.db'));
   const id = '1c100000000000001';
   const detailUrl = `https://www.imot.bg/obiava-${id}-test`;
-  const adapter = new FixtureAdapter([
-    [/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)],
-    [detailUrl, new URL('./fixtures/listing-street.html', import.meta.url)],
-  ]);
+  let changedCard = false;
+  const adapter = {
+    async fetchPage(url) {
+      const fixture = url === detailUrl ? './fixtures/listing-street.html' : './fixtures/search-normal.html';
+      let html = await readFile(new URL(fixture, import.meta.url), 'utf8');
+      if (changedCard && url !== detailUrl) html = html.replace('125 000 €', '124 000 €');
+      return { url, status: 200, html, fetchedAt: new Date() };
+    },
+    async close() {},
+  };
   storage.saveSearch({ id: 'detail-refresh-search', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
   try {
     await withClient(createServer({ adapter, storage }), async client => {
@@ -234,6 +240,7 @@ test('watched refresh preserves fetched listing details when search-card data is
       const original = storage.getListing(id);
       assert.ok(original);
 
+      changedCard = true;
       const refreshed = await client.callTool({ name: 'refresh_watched', arguments: {} });
       assert.equal(refreshed.isError, undefined, refreshed.content?.[0]?.text);
       const afterRefresh = storage.getListing(id);
@@ -242,6 +249,7 @@ test('watched refresh preserves fetched listing details when search-card data is
       assert.equal(afterRefresh.location.street, original.location.street);
       assert.equal(afterRefresh.gas, original.gas);
       assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'edited').length, 0);
+      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'price_change').length, 1);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
