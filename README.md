@@ -4,6 +4,16 @@ A conversational assistant that searches imot.bg, evaluates properties and remem
 
 **Status: stage 1, in development.**
 
+## Quick start
+
+Install dependencies and build the MCP server, then load this repository as a Claude Code plugin. In the Claude Code session, try: “Find a two-bedroom apartment in Sofia under €350,000, within walking distance of the metro.” See [`docs/sample-requests.md`](docs/sample-requests.md) for the corresponding tool calls and more examples.
+
+```sh
+npm ci
+npm run build
+claude --plugin-dir .
+```
+
 ## Build and test
 
 Requires Node.js 24 or newer.
