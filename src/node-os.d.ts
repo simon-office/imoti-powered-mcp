@@ -13,6 +13,8 @@ declare module 'node:fs' {
 declare module 'node:fs/promises' {
   export function readFile(path: string | URL): Promise<Uint8Array>;
   export function mkdir(path: string, options: { recursive: boolean }): Promise<void>;
+  export function readdir(path: string): Promise<string[]>;
+  export function writeFile(path: string, data: string): Promise<void>;
 }
 
 declare module 'node:path' {
@@ -33,4 +35,10 @@ declare module 'node:sqlite' {
   }
 }
 
-declare const process: { env: Record<string, string | undefined> };
+declare const process: {
+  env: Record<string, string | undefined>;
+  argv: string[];
+  stdout: { write(value: string): void };
+  stderr: { write(value: string): void };
+  exitCode?: number;
+};
