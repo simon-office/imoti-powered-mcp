@@ -121,7 +121,13 @@ test('refresh command fetches persisted watched listings without a saved search'
     const result = run(['refresh', '--fixtures', new URL('./fixtures', import.meta.url).pathname], dataDir);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /and 1 watched listing/i);
+    const eventCount = () => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); console.log(storage.listChanges().length); storage.close();`], { encoding: 'utf8' }).stdout.trim();
+    const eventsAfterFirstRefresh = eventCount();
+    const second = run(['refresh', '--fixtures', new URL('./fixtures', import.meta.url).pathname], dataDir);
+    assert.equal(second.status, 0, second.stderr);
+    assert.match(second.stdout, /and 1 watched listing.*recorded 0 changes/i);
+    assert.equal(eventCount(), eventsAfterFirstRefresh, 'unchanged watched listing fixtures must not add duplicate events');
     const observations = spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); console.log(storage.listObservations(${JSON.stringify(listingId)}).filter(item => new URL(item.sourceUrl).pathname.startsWith('/obiava-')).length); storage.close();`], { encoding: 'utf8' });
-    assert.equal(observations.stdout.trim(), '1');
+    assert.equal(observations.stdout.trim(), '2');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
