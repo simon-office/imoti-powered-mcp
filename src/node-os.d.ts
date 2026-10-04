@@ -2,6 +2,10 @@ declare module 'node:os' {
   export function homedir(): string;
 }
 
+declare module 'node:crypto' {
+  export function randomUUID(): string;
+}
+
 declare module 'node:util' {
   export function isDeepStrictEqual(value1: unknown, value2: unknown): boolean;
 }

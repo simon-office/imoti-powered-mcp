@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/server';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import * as z from 'zod/v4';
 import { VERSION } from './version.js';
@@ -44,6 +45,44 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       };
     },
   );
+
+  if (deps.storage) {
+    const { storage } = deps;
+    server.registerTool('save_note', {
+      description: 'Save a timestamped note about a listing.',
+      inputSchema: { listingId: z.string().min(1), kind: z.enum(['favourite', 'rejected', 'viewing', 'note']), text: z.string() },
+      outputSchema: z.object({ note: z.object({ id: z.string(), listingId: z.string(), kind: z.enum(['favourite', 'rejected', 'viewing', 'note']), text: z.string(), createdAt: z.string() }) }),
+    }, async ({ listingId, kind, text }) => {
+      try {
+        const note = { id: randomUUID(), listingId, kind, text, createdAt: new Date().toISOString() };
+        storage.addNote(note);
+        return { structuredContent: { note }, content: [{ type: 'text' as const, text: `Saved ${kind} note for listing ${listingId}.` }] };
+      } catch (error) { return toolError(error); }
+    });
+    server.registerTool('save_search', {
+      description: 'Save a named property search and its criteria.',
+      inputSchema: { id: z.string().min(1), criteria: z.record(z.string(), z.unknown()) },
+      outputSchema: z.object({ search: z.object({ id: z.string(), criteria: z.record(z.string(), z.unknown()), createdAt: z.string() }) }),
+    }, async ({ id, criteria }) => {
+      try {
+        const existing = storage.listSearches().find(search => search.id === id);
+        const search = { id, criteria, createdAt: existing?.createdAt ?? new Date().toISOString() };
+        storage.saveSearch(search);
+        return { structuredContent: { search }, content: [{ type: 'text' as const, text: `Saved search ${id}.` }] };
+      } catch (error) { return toolError(error); }
+    });
+    server.registerTool('watch_listing', {
+      description: 'Add or remove a listing from the watchlist.',
+      inputSchema: { listingId: z.string().min(1), watch: z.boolean() },
+      outputSchema: z.object({ listingId: z.string(), watching: z.boolean() }),
+    }, async ({ listingId, watch }) => {
+      try {
+        if (watch) storage.watch(listingId); else storage.unwatch(listingId);
+        const result = { listingId, watching: storage.listWatched().includes(listingId) };
+        return { structuredContent: result, content: [{ type: 'text' as const, text: `${watch ? 'Watching' : 'Stopped watching'} listing ${listingId}.` }] };
+      } catch (error) { return toolError(error); }
+    });
+  }
 
   if (deps.adapter && deps.storage) {
     const { adapter, storage } = deps;

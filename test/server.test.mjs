@@ -90,6 +90,55 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('memory tools persist notes, independent saved searches, and listing watches', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'fake-listing-1' });
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const noteResult = await client.callTool({ name: 'save_note', arguments: { listingId: 'fake-listing-1', kind: 'favourite', text: 'Sunny kitchen' } });
+      assert.equal(noteResult.isError, undefined);
+      assert.deepEqual(storage.listNotes('fake-listing-1'), [noteResult.structuredContent.note]);
+      assert.ok(noteResult.structuredContent.note.id);
+      assert.ok(Number.isFinite(Date.parse(noteResult.structuredContent.note.createdAt)));
+      assert.equal(noteResult.structuredContent.note.text, 'Sunny kitchen');
+
+      const first = await client.callTool({ name: 'save_search', arguments: { id: 'near-park', criteria: { districts: ['fake-district'] } } });
+      const second = await client.callTool({ name: 'save_search', arguments: { id: 'under-budget', criteria: { priceMax: 123456 } } });
+      assert.deepEqual(first.structuredContent.search, storage.listSearches()[0]);
+      assert.deepEqual(second.structuredContent.search, storage.listSearches()[1]);
+      assert.equal(storage.listSearches().length, 2);
+
+      const watched = await client.callTool({ name: 'watch_listing', arguments: { listingId: 'fake-listing-1', watch: true } });
+      assert.deepEqual(watched.structuredContent, { listingId: 'fake-listing-1', watching: true });
+      assert.deepEqual(storage.listWatched(), ['fake-listing-1']);
+      const unwatched = await client.callTool({ name: 'watch_listing', arguments: { listingId: 'fake-listing-1', watch: false } });
+      assert.deepEqual(unwatched.structuredContent, { listingId: 'fake-listing-1', watching: false });
+      assert.deepEqual(storage.listWatched(), []);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('memory tools reject invalid inputs', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  try {
+    await withClient(createServer({ storage }), async client => {
+      for (const [name, args] of [
+        ['save_note', { listingId: 'x', kind: 'unknown', text: 'x' }],
+        ['save_note', { listingId: 'x', kind: 'note', text: 42 }],
+        ['save_search', { id: 'x', criteria: 'not-object' }],
+        ['watch_listing', { listingId: 'x', watch: 'yes' }],
+      ]) {
+        const result = await client.callTool({ name, arguments: args });
+        assert.equal(result.isError, true, `${name} should reject ${JSON.stringify(args)}`);
+      }
+      assert.deepEqual(storage.listSearches(), []);
+      assert.deepEqual(storage.listWatched(), []);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('get_listing fetches after a search-card observation instead of treating it as detail cache', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
