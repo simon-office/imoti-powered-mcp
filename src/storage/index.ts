@@ -6,6 +6,8 @@ import { isDeepStrictEqual } from 'node:util';
 
 export type LocationPrecision = 'exact' | 'street' | 'neighbourhood' | 'unknown';
 export type NoteKind = 'favourite' | 'rejected' | 'viewing' | 'note';
+export type EventKind = 'new_match' | 'price_change' | 'edited' | 'disappeared';
+export interface Event { id: number; listingId: string; kind: EventKind; occurredAt: string; data: unknown }
 export interface Listing {
   id: string;
   propertyKey?: string | null;
@@ -28,6 +30,8 @@ export interface Storage {
   getListing(id: string): Listing | undefined;
   recordObservation(observation: Observation): void;
   listObservations(listingId: string): Observation[];
+  recordChange(event: Omit<Event, 'id'>): boolean;
+  listChanges(options?: { since?: string; limit?: number }): Event[];
   saveSearch(search: SavedSearch): void;
   listSearches(): SavedSearch[];
   addNote(note: Note): void;
@@ -40,6 +44,12 @@ export interface Storage {
 
 const precisionValues = new Set<LocationPrecision>(['exact', 'street', 'neighbourhood', 'unknown']);
 const noteKindValues = new Set<NoteKind>(['favourite', 'rejected', 'viewing', 'note']);
+const eventKindValues = new Set<EventKind>(['new_match', 'price_change', 'edited', 'disappeared']);
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(',')}}`;
+  return JSON.stringify(value);
+}
 
 export function openStorage(path?: string): Storage {
   const dataDir = process.env.IMOTI_DATA_DIR || join(homedir(), '.imoti-powered-mcp');
@@ -52,9 +62,9 @@ export function openStorage(path?: string): Storage {
   if (existingVersionTable) {
     const existingVersion = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number } | undefined;
     version = existingVersion?.version ?? 0;
-    if (version > 1) {
+    if (version > 2) {
       db.close();
-      throw new Error(`Database schema version ${version} is newer than supported version 1`);
+      throw new Error(`Database schema version ${version} is newer than supported version 2`);
     }
   } else {
     db.exec('CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version VALUES (0);');
@@ -76,7 +86,7 @@ export function openStorage(path?: string): Storage {
       id INTEGER PRIMARY KEY AUTOINCREMENT, listing_id TEXT NOT NULL REFERENCES listings(id),
       kind TEXT NOT NULL CHECK(kind IN ('new_match','price_change','edited','disappeared')),
       occurred_at TEXT NOT NULL, event_json TEXT NOT NULL
-    );` }];
+    );` }, { version: 2, sql: `SELECT 1;` }];
   db.exec('PRAGMA foreign_keys = ON');
   try {
     for (const migration of migrations) {
@@ -139,6 +149,25 @@ export function openStorage(path?: string): Storage {
     listObservations(listingId) {
       const rows = db.prepare('SELECT listing_id, observed_at, source_url, raw_json, normalized_json FROM observations WHERE listing_id = ? ORDER BY observed_at, id').all(listingId) as Array<Record<string, string>>;
       return rows.map(row => ({ listingId: row.listing_id, observedAt: row.observed_at, sourceUrl: row.source_url, raw: JSON.parse(row.raw_json), normalized: JSON.parse(row.normalized_json) }));
+    },
+    recordChange(event) {
+      if (!eventKindValues.has(event.kind)) throw new TypeError('Invalid event kind');
+      const dataJson = stableJson(event.data);
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const existing = db.prepare('SELECT id FROM events WHERE listing_id = ? AND kind = ? AND occurred_at = ? AND event_json = ?').get(event.listingId, event.kind, event.occurredAt, dataJson);
+        if (existing) { db.exec('COMMIT'); return false; }
+        db.prepare('INSERT INTO events(listing_id, kind, occurred_at, event_json) VALUES (?, ?, ?, ?)').run(event.listingId, event.kind, event.occurredAt, dataJson);
+        db.exec('COMMIT');
+        return true;
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
+    listChanges(options = {}) {
+      const limit = options.limit === undefined ? -1 : Math.max(0, Math.floor(options.limit));
+      const rows = options.since === undefined
+        ? db.prepare('SELECT id, listing_id, kind, occurred_at, event_json FROM events ORDER BY occurred_at, id LIMIT ?').all(limit)
+        : db.prepare('SELECT id, listing_id, kind, occurred_at, event_json FROM events WHERE occurred_at >= ? ORDER BY occurred_at, id LIMIT ?').all(options.since, limit);
+      return (rows as Array<{ id: number; listing_id: string; kind: EventKind; occurred_at: string; event_json: string }>).map(row => ({ id: row.id, listingId: row.listing_id, kind: row.kind, occurredAt: row.occurred_at, data: JSON.parse(row.event_json) }));
     },
     saveSearch(search) { db.prepare('INSERT INTO searches(id, search_json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET search_json=excluded.search_json').run(search.id, JSON.stringify(search)); },
     listSearches() { return (db.prepare('SELECT search_json FROM searches ORDER BY rowid').all() as Array<{ search_json: string }>).map(row => JSON.parse(row.search_json) as SavedSearch); },

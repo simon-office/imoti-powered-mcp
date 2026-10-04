@@ -115,7 +115,7 @@ test('site listing ids remain distinct when they share a physical property key a
   const db = new DatabaseSync(path);
   try {
     assert.throws(() => db.prepare("INSERT INTO events(listing_id, kind, occurred_at, event_json) VALUES ('site-a', 'unknown', 'now', '{}')").run());
-    assert.equal(db.prepare('SELECT version FROM schema_version').get().version, 1);
+    assert.equal(db.prepare('SELECT version FROM schema_version').get().version, 2);
   } finally {
     db.close();
     await rm(dir, { recursive: true, force: true });
@@ -208,13 +208,13 @@ test('opening a newer schema fails without modifying its schema or version', asy
   const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
   const path = join(dir, 'imoti.db');
   const db = new DatabaseSync(path);
-  db.exec('CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES (2);');
+  db.exec('CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES (3);');
   db.close();
   try {
     assert.throws(() => openStorage(path), /newer than supported/);
     const reopened = new DatabaseSync(path);
     try {
-      assert.equal(reopened.prepare('SELECT version FROM schema_version').get().version, 2);
+      assert.equal(reopened.prepare('SELECT version FROM schema_version').get().version, 3);
       assert.deepEqual(reopened.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map(row => row.name), ['schema_version']);
     } finally {
       reopened.close();
@@ -264,7 +264,7 @@ test('schema version zero upgrades through the ordered migration to version one'
     assert.equal(storage.getListing('after-migration').id, 'after-migration');
     storage.close();
     const migrated = new DatabaseSync(path);
-    try { assert.equal(migrated.prepare('SELECT version FROM schema_version').get().version, 1); }
+    try { assert.equal(migrated.prepare('SELECT version FROM schema_version').get().version, 2); }
     finally { migrated.close(); }
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -304,6 +304,55 @@ test('notes reject missing and unsupported kinds before writing', async () => {
     assert.deepEqual(storage.listNotes('site-notes'), []);
   } finally {
     storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('change events persist idempotently, round-trip, and filter by time and limit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const storage = openStorage(join(dir, 'imoti.db'));
+  try {
+    storage.recordObservation({ listingId: 'event-listing', observedAt: '2026-09-01T00:00:00.000Z', sourceUrl: 'https://example.invalid/fake', raw: { amount: '100' }, normalized: { price: 100 } });
+    const event = { listingId: 'event-listing', kind: 'price_change', occurredAt: '2026-09-02T00:00:00.000Z', data: { from: 100, to: 90 } };
+    assert.equal(storage.recordChange(event), true);
+    assert.equal(storage.recordChange(event), false);
+    assert.equal(storage.recordChange({ ...event, kind: 'disappeared', data: { status: 'no longer observed' } }), true);
+    assert.deepEqual(storage.listChanges(), [
+      { ...event, id: 1 },
+      { ...event, id: 2, kind: 'disappeared', data: { status: 'no longer observed' } },
+    ]);
+    assert.deepEqual(storage.listChanges({ since: '2026-09-02T00:00:00.000Z', limit: 1 }), [{ ...event, id: 1 }]);
+    assert.equal(storage.getListing('event-listing').firstObservedAt, '2026-09-01T00:00:00.000Z');
+  } finally {
+    storage.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('version-one migration preserves existing user records and change events', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'imoti-storage-'));
+  const path = join(dir, 'imoti.db');
+  const storage = openStorage(path);
+  storage.upsertListing({ id: 'legacy-listing' }, '2026-09-01T00:00:00.000Z');
+  storage.saveSearch({ id: 'legacy-search', criteria: {}, createdAt: '2026-09-01T00:00:00.000Z' });
+  storage.addNote({ id: 'legacy-note', listingId: 'legacy-listing', kind: 'note', text: 'Synthetic', createdAt: '2026-09-01T00:00:00.000Z' });
+  storage.watch('legacy-listing');
+  storage.recordObservation({ listingId: 'legacy-listing', observedAt: '2026-09-01T00:00:00.000Z', sourceUrl: 'https://example.invalid/legacy', raw: {}, normalized: {} });
+  storage.recordChange({ listingId: 'legacy-listing', kind: 'edited', occurredAt: '2026-09-02T00:00:00.000Z', data: { title: 'changed' } });
+  storage.close();
+  const db = new DatabaseSync(path);
+  db.prepare('UPDATE schema_version SET version = 1').run();
+  db.close();
+  const migrated = openStorage(path);
+  try {
+    assert.equal(migrated.getListing('legacy-listing').id, 'legacy-listing');
+    assert.equal(migrated.listObservations('legacy-listing').length, 1);
+    assert.equal(migrated.listSearches().length, 1);
+    assert.equal(migrated.listNotes('legacy-listing').length, 1);
+    assert.deepEqual(migrated.listWatched(), ['legacy-listing']);
+    assert.equal(migrated.listChanges().length, 1);
+  } finally {
+    migrated.close();
     await rm(dir, { recursive: true, force: true });
   }
 });
