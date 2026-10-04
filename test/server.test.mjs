@@ -161,6 +161,7 @@ test('watched refresh persists only real changes and get_changes returns a safe 
       assert.match(changes.structuredContent.digest, /^new_match: 1/);
       assert.match(changes.structuredContent.digest, /1c100000000000001.*new_match/);
       assert.match(changes.structuredContent.digest, /3-СТАЕН/);
+      assert.match(changes.structuredContent.digest, /Изток/);
       assert.match(changes.structuredContent.digest, /125000 EUR/);
       assert.doesNotMatch(changes.structuredContent.digest, /undefined/);
       assert.doesNotMatch(changes.structuredContent.digest, /sold|transaction/i);
