@@ -1,33 +1,68 @@
-# Owner live check (stage 1)
+# Owner live check (stage 2: memory and monitoring)
 
-Build the project, then run searches on the owner's machine with a normal browser available:
+Build the project and start the plugin on the owner's machine with Chrome or Chromium installed. Use synthetic values below
+or substitute listing IDs and criteria from your own private session. In the Claude Code session, make these MCP calls:
 
-```sh
-npm run search -- --type tristaen --price-max 350000 --area-min 70
-npm run search -- --deal rent --price-max 1600 --district Lozenets
-npm run search -- --district Iztok --district Lozenets --type dvustaen
-```
+1. Save a search:
 
-Each search prints filter verification and listing rows, then saves the full structured response to
-`$IMOTI_DATA_DIR/last-search.json` (default `~/.imoti-powered-mcp/last-search.json`). To use synthetic
-HTML fixtures without a browser or network, add `--fixtures test/fixtures`. Listing details can be checked with
-`npm run listing -- <id-or-url> [--refresh]`; `--visible` opens the browser visibly. If a protective screen appears,
-stop and continue manually in visible mode; do not automate past it.
+   ```json
+   { "name": "save_search", "arguments": { "id": "stage2-live-check", "criteria": { "deal": "sale", "city": "София", "districts": ["Лозенец"], "propertyTypes": ["tristaen"], "rooms": { "min": 3, "max": 3 }, "priceMax": 350000 } } }
+   ```
 
-## Compare ten results visually
+2. Add a note to a returned listing (replace the sample ID with one from your search):
 
-For ten returned listings, compare the CLI's structured data with each page and record whether each field agrees:
+   ```json
+   { "name": "save_note", "arguments": { "listingId": "1c100000000000001", "kind": "note", "text": "Stage 2 live-check note" } }
+   ```
 
-| Listing | Price | Area | Floor | District | Street precision | Photo count | Notes |
-|---|---|---|---|---|---|---|---|
-| 1–10 | | | | | | | |
+3. Watch a listing:
 
-Use the page as the reference. For street precision, record what is actually disclosed (exact address, street,
-neighbourhood, or unknown); do not infer an exact location from a map pin or agency office. Count visible listing photos,
-not thumbnails duplicated by the page layout.
+   ```json
+   { "name": "watch_listing", "arguments": { "listingId": "1c100000000000001", "watch": true } }
+   ```
 
-## Report mismatches
+4. Close the Claude Code chat/session completely. From a terminal in the repository, run the local refresh command:
 
-If the CLI differs from the page, create an office task with the command and criteria used, listing id, field, CLI value,
-observed page value, and a short explanation. Include the saved `last-search.json` as evidence when relevant. Use made-up
-or redacted values in public examples; never attach personal data, browser profiles, credentials, photos, or page dumps.
+   ```sh
+   npm run refresh --
+   ```
+
+   This uses the saved local data and refreshes saved searches and watched listings. It prints the counts refreshed and
+   changes recorded. The database is under `$IMOTI_DATA_DIR/imoti.db` (default `~/.imoti-powered-mcp/imoti.db`). Do not
+   run fixture mode for the live check; `--fixtures test/fixtures` is for offline synthetic testing only. If a protective
+   screen appears, stop and continue manually in visible mode; do not automate past it.
+
+5. Reopen the chat and inspect the change digest:
+
+   ```json
+   { "name": "get_changes", "arguments": { "limit": 100 } }
+   ```
+
+## Compare these observations
+
+Record the following sequence and compare the change digest with the observations actually made:
+
+- **First observation:** a listing first seen while saving/searching or refreshing starts local history at that observation.
+  There is no inferred earlier price history and no fabricated price-change event before the first observation.
+- **Changed asking price:** if a later refresh observes a different asking price, expect one `price_change` event with the observed
+  old and new values.
+- **Repeated unchanged refresh:** run `npm run refresh --` again without changing the listing. An unchanged observation may be
+  stored, but it must add no duplicate change event.
+- **Listing no longer observed:** when a previously observed search result is absent on a completed refresh, expect
+  `no longer observed` / `disappeared`. Absence does not mean sold; absence is not sold evidence. Do not treat absence as sold, label it sold, or infer why it disappeared.
+
+For a controlled comparison, note when each refresh ran and whether the asking price or search result presence actually
+changed between runs. If the live site does not naturally provide a changed-price or missing-listing case during the check,
+record that the case was not observed rather than manufacturing evidence.
+
+## Report the live-check result
+
+Record the date/time and runtime (Node version, OS, browser), exact commands used, whether chat was closed during refresh,
+the saved-search/watch setup result, refresh stdout counts, and the `get_changes` event kinds/counts for each step. For any
+event, include only the event kind and whether the observed values matched; use a synthetic or redacted listing identifier.
+State which of the four comparisons were observed and which were unavailable, and note any error text needed to reproduce a
+problem.
+
+Do not include credentials, tokens, personal data, browser profiles, actual identifying listing details, photos, copied
+listing pages, page dumps, or raw `last-search.json`/database contents in a report. Share only the minimum redacted output
+needed to substantiate the result.
