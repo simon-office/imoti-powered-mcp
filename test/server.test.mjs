@@ -37,6 +37,7 @@ test('search_listings reports filter mismatches, client-filters results, and per
       assert.equal(result.structuredContent.verification.ok, false);
       assert.ok(Array.isArray(result.structuredContent.verification.mismatches));
       assert.ok(result.structuredContent.verification.mismatches.length > 0);
+      assert.ok(result.structuredContent.verification.mismatches.some(mismatch => mismatch.filter === 'district' && mismatch.observed === 'lozenets'));
       assert.equal(result.structuredContent.query.criteria.priceMin, 100000);
       assert.ok(result.structuredContent.query.urls.length <= 3);
       assert.ok(result.structuredContent.observedAt);
@@ -136,6 +137,36 @@ test('search_listings verifies matching requested deal and city filters', async 
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+for (const [name, criteria, expectedCount] of [
+  ['a matching district', { districts: ['Изток'] }, 1],
+  ['matching districts and property types', { districts: ['iztok', 'lozenets'], propertyTypes: ['tristaen', 'dvustaen'], maxPages: 2 }, 2],
+  ['a matching exact room count', { districts: ['iztok'], rooms: { min: 3, max: 3 } }, 1],
+  ['a matching property type without a district', { propertyTypes: ['tristaen'] }, 1],
+]) {
+  test(`search_listings verifies ${name}`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
+    const storage = openStorage(join(directory, 'test.db'));
+    const adapter = new FixtureAdapter([
+      [/\/lozenets\//, new URL('./fixtures/search-lozenets-matching.html', import.meta.url)],
+      [/obiavi\/prodazhbi/, new URL('./fixtures/search-iztok-matching.html', import.meta.url)],
+    ]);
+    try {
+      await withClient(createServer({ adapter, storage }), async client => {
+        const result = await client.callTool({ name: 'search_listings', arguments: { criteria, limit: 10 } });
+        assert.equal(result.isError, undefined, result.content?.[0]?.text);
+        assert.equal(result.structuredContent.listings.length, expectedCount);
+        assert.equal(result.structuredContent.verification.ok, true, JSON.stringify(result.structuredContent.verification.mismatches));
+        assert.deepEqual(result.structuredContent.verification.mismatches, []);
+        assert.match(result.content[0].text, /filters verified/);
+        assert.ok(result.structuredContent.query.urls.length <= (criteria.maxPages ?? 3) * (criteria.districts?.length ?? 1));
+        for (const listing of result.structuredContent.listings) {
+          assert.equal(storage.listObservations(listing.id).length, 1);
+        }
+      });
+    } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}
 
 test('search URL page budget applies across property types per district', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
