@@ -23,6 +23,12 @@ npm run build
 claude --plugin-dir <repository>
 ```
 
+## Browser adapter
+
+The browser adapter requires an installed Chrome or Chromium executable; `playwright-core` does not download a browser during `npm ci`. By default it uses the Chrome channel. Set `IMOTI_BROWSER_EXECUTABLE` (or pass `executablePath`) to use a specific browser executable. The persistent profile is stored at `IMOTI_DATA_DIR/profile` (default `~/.imoti-powered-mcp/profile`), outside the repository. Set `IMOTI_VISIBLE=1` to launch the browser visibly when a protective screen asks for human continuation. The adapter stops on protective screens and does not automate CAPTCHA or other challenges.
+
+The browser launch path has not been checked in CI; it remains unchecked pending the owner's live run on a machine with Chrome or Chromium installed.
+
 To inspect the MCP server manually, run:
 
 ```sh
