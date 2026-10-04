@@ -52,4 +52,4 @@ Releases are made by the repository owner.
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[MIT](LICENSE)
