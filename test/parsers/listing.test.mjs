@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { parseListing } from '../../dist/parsers/listing.js';
+import { parseListing, sanitizeListingText } from '../../dist/parsers/listing.js';
 
 const fixture = (name) => readFile(new URL(`../fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -24,10 +24,22 @@ test('parses full street-level listing details and structured Offer fields', asy
   assert.equal(result.description, 'Измислено описание първи ред.\nИзмислено описание втори ред.');
   assert.deepEqual(result.location, { city: 'град София', district: 'Изток', street: 'ул. Примерна 1', precision: 'street' });
   assert.deepEqual(result.photos, ['https://imotstatic1.focus.bg/fake-full.jpg']);
-  assert.deepEqual(result.seller, { kind: 'agency', name: 'Агенция Пример' });
+  assert.deepEqual(result.seller, { kind: 'agency', name: null });
   assert.equal(result.vatNote, null);
   assert.deepEqual(result.appliedFilters, { deal: 'Продажби', city: 'град София', district: 'Изток', type: '3-СТАЕН' });
   assert.equal(Object.keys(result).some((key) => /phone|email|contact/i.test(key)), false);
+});
+
+test('sanitizes phone and email spans without changing surrounding text or line breaks', () => {
+  assert.equal(sanitizeListingText('Условие\nОбади се 0888000000 или fake@example.invalid!'), 'Условие\nОбади се [redacted] или [redacted]!');
+  assert.equal(sanitizeListingText(null), null);
+});
+
+test('redacts contacts in moreInfo text and omits dealer name and phone', async () => {
+  const result = parseListing(await fixture('listing-contacts.html'));
+  assert.equal(result.description, 'Измислено жилище.\nТелефон [redacted], email [redacted].\nОглед след уговорка.');
+  assert.deepEqual(result.seller, { kind: 'agency', name: null });
+  assert.doesNotMatch(JSON.stringify(result), /0888000000|seller@example\.invalid|Агенция Контактна/);
 });
 
 test('uses DOM fallback, district precision, lowered price and VAT note', async () => {
@@ -40,7 +52,7 @@ test('uses DOM fallback, district precision, lowered price and VAT note', async 
   assert.deepEqual(result.location, { city: 'град София', district: 'Люлин-1', street: null, precision: 'neighbourhood' });
   assert.equal(result.location.street, null);
   assert.equal(result.description, 'Само измислен текст.\nОще измислен текст.');
-  assert.deepEqual(result.seller, { kind: 'private', name: 'Частен продавач' });
+  assert.deepEqual(result.seller, { kind: 'private', name: null });
   assert.match(result.vatNote, /без ДДС/);
   assert.deepEqual(result.photos, ['https://imotstatic1.focus.bg/fake-dom-full.jpg']);
   assert.equal(result.url, 'https://www.imot.bg/obiava-1c100000000000002-izmisleno');

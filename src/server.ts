@@ -139,7 +139,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           }
           const observedAt = new Date().toISOString();
           const latestChanges = new Map<string, string>();
-          for (const event of storage.listChanges()) latestChanges.set(event.listingId, event.kind);
+          for (const event of storage.listChanges()) if (!latestChanges.has(event.listingId)) latestChanges.set(event.listingId, event.kind);
           for (const [id, { listing, sourceUrl }] of current) {
             const previous = storage.getListing(id);
             const priorSnapshot = previous ?? prior.get(id);
