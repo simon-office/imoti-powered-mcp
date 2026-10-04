@@ -7,23 +7,45 @@ const read = path => readFile(new URL(path, root), 'utf8');
 
 test('live-check documentation gives executable memory and refresh steps', async () => {
   const doc = await read('docs/live-check.md');
-  assert.match(doc, /save_search/);
-  assert.match(doc, /save_note/);
-  assert.match(doc, /watch_listing/);
+  const examples = [...doc.matchAll(/```json\s*([\s\S]*?)\s*```/g)].map(([, json]) => JSON.parse(json));
+  assert.deepEqual(examples, [
+    {
+      name: 'save_search',
+      arguments: {
+        id: 'stage2-live-check',
+        criteria: {
+          deal: 'sale',
+          city: 'София',
+          districts: ['Лозенец'],
+          propertyTypes: ['tristaen'],
+          rooms: { min: 3, max: 3 },
+          priceMax: 350000,
+        },
+      },
+    },
+    {
+      name: 'save_note',
+      arguments: { listingId: '1c100000000000001', kind: 'note', text: 'Stage 2 live-check note' },
+    },
+    {
+      name: 'watch_listing',
+      arguments: { listingId: '1c100000000000001', watch: true },
+    },
+    { name: 'get_changes', arguments: { limit: 100 } },
+  ]);
   assert.match(doc, /npm run refresh --/);
-  assert.match(doc, /get_changes/);
+  assert.match(doc, /npm run refresh --\s*```[\s\S]*?```[\s\S]*?again without changing the listing/i);
   assert.match(doc, /close the Claude Code chat\/session/i);
 });
 
 test('live-check documents stage 2 event expectations and safe reporting', async () => {
   const doc = await read('docs/live-check.md');
-  for (const term of ['first observation', 'asking price', 'unchanged', 'no longer observed', 'not sold', 'before the first observation']) {
-    assert.ok(doc.toLowerCase().includes(term), `missing: ${term}`);
-  }
-  assert.match(doc, /output|evidence/i);
-  assert.match(doc, /credentials/i);
-  assert.match(doc, /personal data/i);
-  assert.match(doc, /copied\s+listing pages|listing page dumps/i);
+  assert.match(doc, /first observation[\s\S]*?starts local history at that observation[\s\S]*?no inferred earlier price history/i);
+  assert.match(doc, /changed asking price[\s\S]*?expect one `price_change` event/i);
+  assert.match(doc, /repeated unchanged refresh[\s\S]*?must add no duplicate change event/i);
+  assert.match(doc, /listing no longer observed[\s\S]*?absence does not mean sold[\s\S]*?Do not treat absence as sold/i);
+  assert.match(doc, /Record the date\/time and runtime[\s\S]*?exact commands used[\s\S]*?refresh stdout counts[\s\S]*?event kinds\/counts/i);
+  assert.match(doc, /Do not include credentials, tokens, personal data[\s\S]*?photos, copied\s+listing pages, page dumps/i);
 });
 
 test('README reports stage 2 and documents local refresh', async () => {
