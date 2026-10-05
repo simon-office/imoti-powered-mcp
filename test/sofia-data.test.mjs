@@ -1,7 +1,53 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { FixtureSofiaDataAdapter } from '../dist/adapter/sofia-data.js';
+import { FixtureSofiaDataAdapter, LocalSofiaDataAdapter, parseGtfsStops } from '../dist/adapter/sofia-data.js';
+
+const stopsText = 'stop_id,stop_name,stop_lat,stop_lon\nfake-1,"Imaginary, Square",42.7,23.3\nfake-2,Made-up Station,42.71,23.31';
+
+test('GTFS parser validates columns, identifiers and finite coordinates', () => {
+  assert.deepEqual(parseGtfsStops(stopsText), [
+    { id: 'fake-1', name: 'Imaginary, Square', latitude: 42.7, longitude: 23.3 },
+    { id: 'fake-2', name: 'Made-up Station', latitude: 42.71, longitude: 23.31 }
+  ]);
+  assert.throws(() => parseGtfsStops('stop_id,stop_name,stop_lat,stop_lon\nx,Bad,NaN,23'), /invalid/i);
+});
+
+test('local adapter fetches once, caches stops and attaches source provenance', async () => {
+  let cached;
+  let fetches = 0;
+  const cache = { read: async () => cached, write: async (_key, value) => { cached = value; } };
+  const options = { cache, fetchStops: async () => { fetches++; return stopsText; }, now: () => new Date('2026-10-06T12:00:00.000Z') };
+  const first = new LocalSofiaDataAdapter(options);
+  const result = await first.getStops();
+  const second = await new LocalSofiaDataAdapter(options).getStops();
+  assert.equal(fetches, 1);
+  assert.deepEqual(second, result);
+  assert.equal(result[0].provenance.sourceUrl, 'https://gtfs.sofiatraffic.bg/api/v1/static');
+  assert.match(result[0].provenance.datasetDate, /valid from 2026-10-05/);
+  assert.equal(result[0].provenance.checkedAt, '2026-10-06T12:00:00.000Z');
+  assert.match(result[0].provenance.reuseTerms, /conflict/i);
+});
+
+test('invalid cached GTFS is refreshed and a failed refresh preserves valid provenance data', async () => {
+  let cached = 'bad';
+  let fetches = 0;
+  const cache = { read: async () => cached, write: async (_key, value) => { cached = value; } };
+  const adapter = new LocalSofiaDataAdapter({ cache, fetchStops: async () => { fetches++; return stopsText; } });
+  assert.equal((await adapter.getStops()).length, 2);
+  assert.equal(fetches, 1);
+  cached = 'bad-again';
+  const broken = new LocalSofiaDataAdapter({ cache, fetchStops: async () => 'stop_id,stop_name,stop_lat,stop_lon\nx,Bad,nope,23' });
+  await assert.rejects(broken.getStops(), /invalid/i);
+  assert.equal(cached, 'bad-again');
+});
+
+test('stdio entry point wires the local adapter while fixture adapter remains importable', async () => {
+  const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /new LocalSofiaDataAdapter\(\)/);
+  assert.match(main, /sofiaData:/);
+  assert.equal(typeof FixtureSofiaDataAdapter, 'function');
+});
 
 test('fixture Sofia adapter returns normalized records with source provenance', async () => {
   const provenance = { name: 'Invented transit data', sourceUrl: 'https://fixture.test/transit', datasetDate: '2026-01-02', checkedAt: '2026-02-03', reuseTerms: 'Synthetic test data; unrestricted' };

@@ -19,10 +19,21 @@ declare module 'node:fs' {
 
 declare module 'node:fs/promises' {
   export function readFile(path: string | URL): Promise<Uint8Array>;
+  export function readFile(path: string, encoding: 'utf8'): Promise<string>;
   export function mkdir(path: string, options: { recursive: boolean }): Promise<void>;
   export function readdir(path: string): Promise<string[]>;
   export function writeFile(path: string, data: string): Promise<void>;
 }
+
+declare module 'node:zlib' {
+  export function inflateRawSync(data: Uint8Array): Uint8Array;
+}
+
+declare const Buffer: {
+  from(data: ArrayBuffer): Uint8Array & { readUInt32LE(offset: number): number; readUInt16LE(offset: number): number; toString(encoding: 'utf8', start?: number, end?: number): string; subarray(start: number, end: number): Uint8Array };
+};
+
+declare namespace NodeJS { interface ErrnoException extends Error { code?: string } }
 
 declare module 'node:path' {
   export function dirname(path: string): string;
