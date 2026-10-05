@@ -4,8 +4,26 @@ import { assessWithOllama, type PhotoFinding } from './ollama.js';
 import { assessWithOpenRouter } from './openrouter.js';
 
 export interface PhotoAssessmentOptions {
+  retrieveVariant?: (url: string) => Promise<{ bytes: Uint8Array; mediaType: string }>;
   ollama?: { endpoint: string; model: string; assess?: (photos: ListingPhoto[]) => Promise<PhotoFinding[]> };
   openRouter?: { apiKey: string; model: string; assess?: (photos: ListingPhoto[]) => Promise<PhotoFinding[]> };
+}
+
+function variantUrl(reference: string): string | undefined {
+  try {
+    const url = new URL(reference);
+    if (url.protocol !== 'https:' || !/(?:imotstatic\d+|cdn\d+)\.focus\.bg$/i.test(url.hostname)) return undefined;
+    const path = url.pathname.replace(/\/big1\/([^/]+)$/, '/big/$1');
+    if (path === url.pathname) return undefined;
+    url.pathname = path;
+    return url.href;
+  } catch { return undefined; }
+}
+
+async function retrieveVariant(url: string): Promise<{ bytes: Uint8Array; mediaType: string }> {
+  const response = await fetch(url, { redirect: 'error' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return { bytes: new Uint8Array(await response.arrayBuffer()), mediaType: response.headers.get('content-type')?.split(';', 1)[0] ?? 'application/octet-stream' };
 }
 
 export function configuredPhotoAssessmentOptions(env: Record<string, string | undefined>): PhotoAssessmentOptions {
@@ -99,12 +117,27 @@ export async function assessListingPhotos(photos: ListingPhoto[], options: Photo
       return { findings: [...findings, ...received], deterministic, contentBlocks: [], uncertainty, provider: provider.name };
     } catch { /* Continue to the next configured provider, then host fallback. */ }
   }
-  const contentBlocks = photos.flatMap(photo => photo.bytes?.byteLength && !photo.unavailableReason && photo.bytes.byteLength <= 200_000 && /^image\/(png|jpeg|webp|gif)$/i.test(photo.mediaType)
-    ? [{ type: 'image' as const, data: base64(photo.bytes), mimeType: photo.mediaType }]
-    : []);
-  for (const photo of photos) if (!photo.bytes?.byteLength || photo.unavailableReason || photo.bytes.byteLength > 200_000 || !/^image\/(png|jpeg|webp|gif)$/i.test(photo.mediaType)) {
-    uncertainty.push(`Photo ${photo.reference} is unavailable to host image assessment; visual coverage is incomplete.`);
+  const contentBlocks: PhotoAssessmentResult['contentBlocks'] = [];
+  for (const photo of photos) {
+    let bytes = photo.bytes;
+    let mediaType = photo.mediaType;
+    let reason: string | undefined;
+    if (photo.unavailableReason || !bytes?.byteLength) reason = `unavailable bytes${photo.unavailableReason ? ` (${photo.unavailableReason})` : ''}`;
+    if (!reason && bytes!.byteLength > 200_000) {
+      const url = variantUrl(photo.reference);
+      if (!url) reason = 'size exceeds 200,000 bytes and no eligible same-host big variant is available';
+      else try {
+        const variant = await (options.retrieveVariant ?? retrieveVariant)(url);
+        bytes = variant.bytes;
+        mediaType = variant.mediaType;
+        if (!bytes.byteLength) reason = 'variant retrieval returned unavailable bytes';
+        else if (bytes.byteLength > 200_000) reason = `variant size ${bytes.byteLength} bytes exceeds 200,000 bytes`;
+        else if (!/^image\/(png|jpeg|webp|gif)$/i.test(mediaType)) reason = `unsupported media type ${mediaType}`;
+      } catch { reason = 'same-host variant retrieval failed'; }
+    } else if (!reason && !/^image\/(png|jpeg|webp|gif)$/i.test(mediaType)) reason = `unsupported media type ${mediaType}`;
+    if (reason) uncertainty.push(`Photo ${photo.reference} omitted from host image content: ${reason}; visual coverage is incomplete.`);
+    else if (bytes?.byteLength) contentBlocks.push({ type: 'image', data: base64(bytes), mimeType: mediaType });
   }
-  uncertainty.push('Host model image assessment is requested; do not infer hidden defects from photos.');
+  if (contentBlocks.length) uncertainty.push('Host model image assessment is requested; do not infer hidden defects from photos.');
   return { findings, deterministic, contentBlocks, uncertainty, provider: 'host' };
 }

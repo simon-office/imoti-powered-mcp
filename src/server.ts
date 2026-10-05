@@ -219,7 +219,8 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const result = await assessListingPhotos(page, deps.photoAssessment ?? configuredPhotoAssessmentOptions(process.env));
         const assessment = { ...result.deterministic, findings: result.findings, provider: result.provider };
         const nextOffset = offset + page.length < retrieved.length ? offset + page.length : null;
-        return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty: [...uncertainty, ...result.uncertainty] }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${retrieved.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`} ${result.provider === 'host' ? 'Assess the attached image content; coverage may be incomplete.' : `Assessment provider: ${result.provider}.`}` }, ...result.contentBlocks] };
+        const hostMessage = result.provider === 'host' ? (result.contentBlocks.length ? 'Assess the attached image content; coverage may be incomplete.' : 'No image content was attached for host assessment; photo coverage is incomplete.') : `Assessment provider: ${result.provider}.`;
+        return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty: [...uncertainty, ...result.uncertainty] }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${retrieved.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`} ${hostMessage}` }, ...result.contentBlocks] };
       } catch (error) { return toolError(error); }
     });
     server.registerTool('refresh_watched', {
