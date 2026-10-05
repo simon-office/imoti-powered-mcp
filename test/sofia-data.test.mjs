@@ -1,10 +1,44 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { FixtureSofiaDataAdapter, LocalSofiaDataAdapter, parseGtfsStops } from '../dist/adapter/sofia-data.js';
+import { deflateRawSync } from 'node:zlib';
+import { FixtureSofiaDataAdapter, LocalSofiaDataAdapter, parseGtfsStops, readZipEntries } from '../dist/adapter/sofia-data.js';
 import { createLocalServer } from '../dist/local-server.js';
 
 const stopsText = 'stop_id,stop_name,stop_lat,stop_lon\nfake-1,"Imaginary, Square",42.7,23.3\nfake-2,Made-up Station,42.71,23.31';
+
+function descriptorZip(entries) {
+  const locals = [], centrals = [];
+  let offset = 0;
+  for (const [name, text] of entries) {
+    const nameBytes = Buffer.from(name), data = deflateRawSync(Buffer.from(text));
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50); local.writeUInt16LE(8, 6); local.writeUInt16LE(8, 8);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, data, Buffer.alloc(16));
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50); central.writeUInt16LE(8, 8); central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(data.length, 20); central.writeUInt32LE(Buffer.byteLength(text), 24); central.writeUInt16LE(nameBytes.length, 28); central.writeUInt32LE(offset, 42);
+    centrals.push(central, nameBytes); offset += 30 + nameBytes.length + data.length + 16;
+  }
+  const centralBytes = Buffer.concat(centrals), localBytes = Buffer.concat(locals);
+  const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50); eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10); eocd.writeUInt32LE(centralBytes.length, 12); eocd.writeUInt32LE(localBytes.length, 16);
+  return Buffer.concat([localBytes, centralBytes, eocd]);
+}
+
+test('shared ZIP reader uses central directory sizes for bit-3 entries', () => {
+  const archive = descriptorZip([['invented.csv', 'synthetic,content']]);
+  assert.equal(new TextDecoder().decode(readZipEntries(archive).get('invented.csv')), 'synthetic,content');
+});
+
+test('address and GTFS loaders read synthetic bit-3 ZIP entries', async () => {
+  const addressZip = descriptorZip([['addresses.csv', 'rn;region;settlement;street;n;e\n1;A;гр. София;ул. Измислена;42.5;23.5']]);
+  const gtfsZip = descriptorZip([['stops.txt', 'stop_id,stop_name,stop_lat,stop_lon\nstop-x,Imaginary,42.5,23.5']]);
+  const cache = { read: async () => undefined, write: async () => {} };
+  const adapter = new LocalSofiaDataAdapter({ cache, fetchStops: async () => gtfsZip, fetchMunicipalData: async () => ({ addressesZip: addressZip, districtsText: JSON.stringify({ features: [] }) }) });
+  assert.equal((await adapter.getStops())[0].id, 'stop-x');
+  assert.equal((await adapter.getMunicipalLocations()).addresses[0].street, 'ул. Измислена');
+});
 
 test('GTFS parser validates columns, identifiers and finite coordinates', () => {
   assert.deepEqual(parseGtfsStops(stopsText), [
@@ -12,6 +46,21 @@ test('GTFS parser validates columns, identifiers and finite coordinates', () => 
     { id: 'fake-2', name: 'Made-up Station', latitude: 42.71, longitude: 23.31 }
   ]);
   assert.throws(() => parseGtfsStops('stop_id,stop_name,stop_lat,stop_lon\nx,Bad,NaN,23'), /invalid/i);
+});
+
+test('GTFS parser ignores unnamed non-boarding stops and retains only named boarding stops', () => {
+  const text = 'stop_id,stop_name,stop_lat,stop_lon,location_type\nplatform,,42,23,3\nnode,,42,23,4\nboarding,Imaginary Stop,42.1,23.1,0\nlegacy,Named Default,42.2,23.2,';
+  assert.deepEqual(parseGtfsStops(text), [
+    { id: 'boarding', name: 'Imaginary Stop', latitude: 42.1, longitude: 23.1 },
+    { id: 'legacy', name: 'Named Default', latitude: 42.2, longitude: 23.2 }
+  ]);
+  assert.throws(() => parseGtfsStops('stop_id,stop_name,stop_lat,stop_lon,location_type\nx,,42,23,3'), /no usable named boarding stops/i);
+});
+
+test('GTFS archive rejects data with no usable named boarding stops', async () => {
+  const archive = descriptorZip([['stops.txt', 'stop_id,stop_name,stop_lat,stop_lon,location_type\nplatform,,42,23,3\nnode,,42,23,4']]);
+  const adapter = new LocalSofiaDataAdapter({ cache: { read: async () => undefined, write: async () => {} }, fetchStops: async () => archive });
+  await assert.rejects(adapter.getStops(), /no usable named boarding stops/i);
 });
 
 test('local adapter fetches once, caches stops and attaches source provenance', async () => {

@@ -76,7 +76,7 @@ export interface SofiaLocalCache {
 export interface LocalSofiaDataAdapterOptions {
   cache?: SofiaLocalCache;
   dataDirectory?: string;
-  fetchStops?: () => Promise<string | { stopsText: string; feedInfoText?: string }>;
+  fetchStops?: () => Promise<string | { stopsText: string; feedInfoText?: string } | ArrayBuffer | Uint8Array>;
   now?: () => Date;
   fetchMunicipalData?: () => Promise<{ addressesZip: ArrayBuffer; districtsText: string }>;
   unzipAddresses?: (archive: ArrayBuffer) => string | Promise<string>;
@@ -111,8 +111,16 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
       } catch { /* refresh invalid cache */ }
     }
     const feed = await this.#fetchStops();
-    const stopsText = typeof feed === 'string' ? feed : feed.stopsText;
-    const datasetDate = typeof feed === 'string' ? 'unknown' : parseFeedStartDate(feed.feedInfoText);
+    const zipFiles = feed instanceof ArrayBuffer || feed instanceof Uint8Array
+      ? readZipEntries(feed)
+      : undefined;
+    const stopsText = zipFiles
+      ? [...zipFiles].find(([name]) => name === 'stops.txt' || name.endsWith('/stops.txt'))?.[1] && new TextDecoder().decode([...zipFiles].find(([name]) => name === 'stops.txt' || name.endsWith('/stops.txt'))![1])
+      : typeof feed === 'string' ? feed : 'stopsText' in feed ? feed.stopsText : undefined;
+    if (!stopsText) throw new Error('Sofia GTFS archive does not contain stops.txt');
+    const feedInfoEntry = zipFiles ? [...zipFiles].find(([name]) => name === 'feed_info.txt' || name.endsWith('/feed_info.txt'))?.[1] : undefined;
+    const feedInfo = zipFiles ? (feedInfoEntry ? new TextDecoder().decode(feedInfoEntry) : undefined) : typeof feed === 'string' || feed instanceof ArrayBuffer || feed instanceof Uint8Array ? undefined : feed.feedInfoText;
+    const datasetDate = parseFeedStartDate(feedInfo);
     const rows = parseGtfsStops(stopsText);
     const checkedAt = this.#now().toISOString();
     const stops: TransitStop[] = rows.map(row => ({ ...row, provenance: {
@@ -224,21 +232,43 @@ async function fetchMunicipalData(): Promise<{ addressesZip: ArrayBuffer; distri
   return { addressesZip: await addressResponse.arrayBuffer(), districtsText: await districtResponse.text() };
 }
 
-function unzipFirstCsv(archive: ArrayBuffer): string {
-  const bytes = Buffer.from(archive); let offset = 0;
-  while (offset + 30 < bytes.length && bytes.readUInt32LE(offset) === 0x04034b50) {
-    const method = bytes.readUInt16LE(offset + 8), size = bytes.readUInt32LE(offset + 18);
-    const nameLength = bytes.readUInt16LE(offset + 26), extraLength = bytes.readUInt16LE(offset + 28);
-    const name = bytes.toString('utf8', offset + 30, offset + 30 + nameLength);
-    const start = offset + 30 + nameLength + extraLength, data = bytes.subarray(start, start + size);
-    if (name.endsWith('.csv')) {
-      if (method === 0) return new TextDecoder().decode(data);
-      if (method === 8) return new TextDecoder().decode(inflateRawSync(data));
-      throw new Error(`Unsupported municipal address ZIP compression method ${method}`);
-    }
-    offset = start + size;
+export function readZipEntries(archive: ArrayBuffer | Uint8Array): Map<string, Uint8Array> {
+  const bytes = Buffer.from(archive instanceof ArrayBuffer ? archive : archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) as ArrayBuffer);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
+    if (bytes.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
   }
-  throw new Error('Municipal address ZIP does not contain a CSV file');
+  if (eocd < 0 || eocd + 22 > bytes.length) throw new Error('Malformed ZIP archive: end-of-central-directory record is missing');
+  if (bytes.readUInt16LE(eocd + 4) !== 0 || bytes.readUInt16LE(eocd + 6) !== 0) throw new Error('Unsupported multi-disk ZIP archive');
+  const count = bytes.readUInt16LE(eocd + 10), directorySize = bytes.readUInt32LE(eocd + 12), directoryOffset = bytes.readUInt32LE(eocd + 16);
+  if (count === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff) throw new Error('Unsupported ZIP64 archive');
+  if (directoryOffset + directorySize > eocd) throw new Error('Malformed ZIP archive: central directory is out of bounds');
+  const result = new Map<string, Uint8Array>(); let cursor = directoryOffset;
+  for (let entry = 0; entry < count; entry++) {
+    if (cursor + 46 > bytes.length || bytes.readUInt32LE(cursor) !== 0x02014b50) throw new Error('Malformed ZIP archive: invalid central directory entry');
+    const flags = bytes.readUInt16LE(cursor + 8), method = bytes.readUInt16LE(cursor + 10), compressedSize = bytes.readUInt32LE(cursor + 20);
+    const nameLength = bytes.readUInt16LE(cursor + 28), extraLength = bytes.readUInt16LE(cursor + 30), commentLength = bytes.readUInt16LE(cursor + 32), localOffset = bytes.readUInt32LE(cursor + 42);
+    if (compressedSize === 0xffffffff || localOffset === 0xffffffff) throw new Error('Unsupported ZIP64 archive');
+    const name = bytes.toString('utf8', cursor + 46, cursor + 46 + nameLength);
+    if (flags & 1) throw new Error(`Encrypted ZIP entry is unsupported: ${name}`);
+    if (localOffset + 30 > bytes.length || bytes.readUInt32LE(localOffset) !== 0x04034b50) throw new Error(`Malformed ZIP archive: local header missing for ${name}`);
+    const dataStart = localOffset + 30 + bytes.readUInt16LE(localOffset + 26) + bytes.readUInt16LE(localOffset + 28);
+    if (dataStart + compressedSize > bytes.length) throw new Error(`Malformed ZIP archive: compressed entry is out of bounds for ${name}`);
+    const compressed = bytes.subarray(dataStart, dataStart + compressedSize);
+    let content: Uint8Array;
+    if (method === 0) content = new Uint8Array(compressed);
+    else if (method === 8) content = new Uint8Array(inflateRawSync(compressed));
+    else throw new Error(`Unsupported ZIP compression method ${method} for ${name}`);
+    result.set(name, content);
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return result;
+}
+
+function unzipFirstCsv(archive: ArrayBuffer): string {
+  const entry = [...readZipEntries(archive)].find(([name]) => name.endsWith('.csv'));
+  if (!entry) throw new Error('Municipal address ZIP does not contain a CSV file');
+  return new TextDecoder().decode(entry[1]);
 }
 
 function validStop(value: unknown): value is TransitStop {
@@ -255,17 +285,20 @@ export function parseGtfsStops(text: string): Array<Pick<TransitStop, 'id' | 'na
   if (lines.length < 2) throw new Error('Invalid GTFS stops.txt: no stop rows');
   const header = parseCsvLine(lines[0]);
   const indexes = ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'].map(name => header.indexOf(name));
+  const locationTypeIndex = header.indexOf('location_type');
   if (indexes.some(index => index < 0)) throw new Error('Invalid GTFS stops.txt: required columns are missing');
-  const result = lines.slice(1).map(line => {
+  const result = lines.slice(1).flatMap(line => {
     const row = parseCsvLine(line);
     const [id, name, latitude, longitude] = indexes.map(index => row[index] ?? '');
+    const locationType = locationTypeIndex < 0 ? '' : (row[locationTypeIndex] ?? '').trim();
+    if (locationType !== '' && locationType !== '0') return [];
     const lat = Number(latitude), lon = Number(longitude);
     if (!id.trim() || !name.trim() || !Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       throw new Error('Invalid GTFS stops.txt: stop identifiers, names and finite coordinates are required');
     }
     return { id, name, latitude: lat, longitude: lon };
   });
-  if (!result.length) throw new Error('Invalid GTFS stops.txt: no stop rows');
+  if (!result.length) throw new Error('Invalid GTFS stops.txt: no usable named boarding stops remain');
   return result;
 }
 
@@ -306,28 +339,9 @@ function parseFeedStartDate(text?: string): string {
 async function fetchOfficialStops(): Promise<{ stopsText: string; feedInfoText?: string }> {
   const response = await fetch(GTFS_URL);
   if (!response.ok) throw new Error(`Sofia GTFS download failed with HTTP ${response.status}`);
-  const archive = Buffer.from(await response.arrayBuffer());
-  const files = new Map<string, string>();
-  let offset = 0;
-  while (offset + 30 < archive.length && archive.readUInt32LE(offset) === 0x04034b50) {
-    const method = archive.readUInt16LE(offset + 8);
-    const compressedSize = archive.readUInt32LE(offset + 18);
-    const nameLength = archive.readUInt16LE(offset + 26);
-    const extraLength = archive.readUInt16LE(offset + 28);
-    const name = archive.toString('utf8', offset + 30, offset + 30 + nameLength);
-    const start = offset + 30 + nameLength + extraLength;
-    const data = archive.subarray(start, start + compressedSize);
-    if (name === 'stops.txt' || name.endsWith('/stops.txt') || name === 'feed_info.txt' || name.endsWith('/feed_info.txt')) {
-      let decoded: Uint8Array;
-      if (method === 0) decoded = data;
-      else if (method === 8) decoded = inflateRawSync(data);
-      else throw new Error(`Unsupported GTFS ZIP compression method ${method}`);
-      files.set(name.split('/').at(-1)!, new TextDecoder().decode(decoded));
-      if (files.has('stops.txt') && files.has('feed_info.txt')) break;
-    }
-    offset = start + compressedSize;
-  }
-  const stopsText = files.get('stops.txt');
+  const files = readZipEntries(await response.arrayBuffer());
+  const normalized = new Map([...files].map(([name, value]) => [name.split('/').at(-1)!, new TextDecoder().decode(value)]));
+  const stopsText = normalized.get('stops.txt');
   if (!stopsText) throw new Error('Sofia GTFS archive does not contain stops.txt');
-  return { stopsText, feedInfoText: files.get('feed_info.txt') };
+  return { stopsText, feedInfoText: normalized.get('feed_info.txt') };
 }
