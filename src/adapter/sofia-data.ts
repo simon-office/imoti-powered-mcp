@@ -114,7 +114,9 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
         const parsed = JSON.parse(cached) as TransitStop[];
         if (Array.isArray(parsed) && parsed.length && parsed.every(validStop)) {
           const endDate = parseDate((parsed[0].provenance as TransitStop['provenance'] & { feedEndDate?: string }).feedEndDate);
-          const stale = endDate ? endDate < this.#now().toISOString().slice(0, 10) : isCacheOld(parsed[0].provenance.checkedAt, this.#now(), this.#cacheMaxAgeMs);
+          const now = this.#now();
+          const stale = isCacheOld(parsed[0].provenance.checkedAt, now, this.#cacheMaxAgeMs)
+            || (endDate !== undefined && endDate < now.toISOString().slice(0, 10));
           if (!stale) return parsed;
           try { return await this.#refreshStops(); } catch { return parsed; }
         }
