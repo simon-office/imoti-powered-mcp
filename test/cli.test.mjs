@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { adapterPageLimit } from '../dist/cli-limits.js';
 
 const run = (args, dataDir, extraEnv = {}) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', new URL('../dist/cli.js', import.meta.url).pathname, ...args], {
   encoding: 'utf8', env: { ...process.env, IMOTI_DATA_DIR: dataDir, ...extraEnv },
@@ -11,6 +12,11 @@ const run = (args, dataDir, extraEnv = {}) => spawnSync(process.execPath, ['--di
 
 const saveWatchedSearch = (dataDir, criteria) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.saveSearch({ id: 'cli-test-search', criteria: ${JSON.stringify(criteria)}, createdAt: new Date().toISOString() }); storage.close();`], { encoding: 'utf8' });
 const saveWatchedListing = (dataDir, listingId) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.watch(${JSON.stringify(listingId)}); storage.close();`], { encoding: 'utf8' });
+
+test('refresh adapter limit honors saved-search page limits independently of interactive defaults', () => {
+  assert.equal(adapterPageLimit('refresh', undefined), 20);
+  assert.equal(adapterPageLimit('search', 3), 3);
+});
 
 test('search command prints verification and persists structured results from fixtures', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));

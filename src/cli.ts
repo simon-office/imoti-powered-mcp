@@ -7,6 +7,7 @@ import { FixtureAdapter } from './adapter/fixture.js';
 import { PlaywrightAdapter } from './adapter/playwright.js';
 import { ProtectiveScreenError } from './adapter/types.js';
 import { createServer } from './server.js';
+import { adapterPageLimit } from './cli-limits.js';
 import { configuredSearchLimit, DEFAULT_SEARCH_MAX_PAGES, DEFAULT_SEARCH_MAX_RESULTS } from './search/criteria.js';
 import { openStorage } from './storage/index.js';
 
@@ -70,7 +71,7 @@ async function main() {
   let adapter;
   try {
     if (parsed.options.visible) process.env.IMOTI_VISIBLE = '1';
-    adapter = parsed.options.fixtures ? await fixtureAdapter(parsed.options.fixtures) : new PlaywrightAdapter({ dataDir, maxPages: parsed.command === 'search' && parsed.criteria.maxPages !== undefined ? parsed.criteria.maxPages as number : Number(process.env.IMOTI_SEARCH_MAX_PAGES ?? 20) });
+    adapter = parsed.options.fixtures ? await fixtureAdapter(parsed.options.fixtures) : new PlaywrightAdapter({ dataDir, maxPages: adapterPageLimit(parsed.command, parsed.criteria.maxPages as number | undefined) });
     await mkdir(dataDir, { recursive: true });
     const storage = openStorage(join(dataDir, 'imoti.db'));
     const server = createServer({ adapter, storage });
