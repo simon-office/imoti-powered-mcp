@@ -20,6 +20,16 @@ export interface PhotoAssessment {
 
 const renderHeuristic = 'Possible rendered or synthetic image signature; heuristic only, not a definitive classification.';
 
+function hasPngEndMarker(bytes: Uint8Array): boolean {
+  for (let index = 8; index <= bytes.length - 8; index += 1) {
+    if (bytes[index] === 0 && bytes[index + 1] === 0 && bytes[index + 2] === 0 && bytes[index + 3] === 0
+      && bytes[index + 4] === 0x49 && bytes[index + 5] === 0x45 && bytes[index + 6] === 0x4e && bytes[index + 7] === 0x44) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function analyzePhotos(photos: ListingPhoto[]): PhotoAssessment {
   const images: PhotoImageAssessment[] = [];
   const hashes = new Map<string, string[]>();
@@ -36,6 +46,12 @@ export function analyzePhotos(photos: ListingPhoto[]): PhotoAssessment {
         ? `Image unavailable: ${photo.unavailableReason}.`
         : 'Image bytes are empty or missing; visual assessment coverage is incomplete.');
     } else {
+      const isPng = photo.mediaType.toLowerCase() === 'image/png'
+        || (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47);
+      if (isPng && !hasPngEndMarker(bytes)) {
+        hasCoverageGap = true;
+        uncertainty.push('PNG image bytes appear truncated or unreadable; visual assessment coverage is incomplete.');
+      }
       totalBytes += bytes.byteLength;
       const hash = createHash('sha256').update(bytes).digest('hex');
       const group = hashes.get(hash) ?? [];
