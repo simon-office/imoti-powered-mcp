@@ -12,7 +12,7 @@ import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
 import { resolveDistrict } from './search/slugs.js';
 import type { SofiaDataAdapter } from './adapter/sofia-data.js';
-import { resolveListingLocation, resolveMunicipalLocation } from './area/location.js';
+import { resolveListingLocation, resolveMunicipalLocation, type MunicipalLocationDatasets } from './area/location.js';
 import type { NormalizedStop, NormalizedSchedule, NormalizedMunicipalFeature, NormalizedWalkingRoute } from './area/types.js';
 import { assessListingPhotos, configuredPhotoAssessmentOptions, type PhotoAssessmentOptions } from './photos/assessment.js';
 
@@ -179,9 +179,15 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const schedules = (values[1] ?? []) as NormalizedSchedule[];
         const features = (values[2] ?? []) as NormalizedMunicipalFeature[];
         const routes = (values[3] ?? []) as NormalizedWalkingRoute[];
-        const municipalLocations = (values[4] ?? { addresses: [], districts: [] }) as { addresses: []; districts: [] };
+        const municipalLocations = (values[4] ?? { addresses: [], districts: [] }) as MunicipalLocationDatasets;
         const location = resolveMunicipalLocation(listing, municipalLocations);
         const uncertainty = [...location.uncertainty];
+        const staleDatasets = [
+          ...uniqueProvenance(stops.map(item => item.provenance)),
+          ...uniqueProvenance(municipalLocations.addresses.map(item => item.provenance)),
+          ...uniqueProvenance(municipalLocations.districts.map(item => item.provenance))
+        ].filter((item): item is typeof item & { stale: NonNullable<typeof item.stale> } => !!item.stale);
+        for (const source of staleDatasets) uncertainty.push(`${source.name} dataset is stale: checked ${source.checkedAt}; ${source.stale.reason === 'feed-end-date' ? 'its feed end date has passed' : 'it is over the cache age limit'}; refresh failed: ${source.stale.refreshError}.`);
         for (let index = 0; index < settled.length; index++) if (settled[index]?.status === 'rejected') uncertainty.push(`${['Stops', 'Schedules', 'Municipal features', 'Walking routes', 'Municipal locations'][index]} data is unavailable: ${reason(index, '')}`);
         const findRoute = (destination: string) => routes.find(route => route.origin === listingId && route.destination === destination);
         const routedStops = location.coordinates && settled[3]?.status !== 'rejected' ? stops.flatMap((stop: NormalizedStop) => {
@@ -217,8 +223,9 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         else if (!stopsAvailable) uncertainty.push('Nearby stop distances are straight-line estimates and do not represent walking routes.');
         const schedulesAvailable = settled[1]?.status !== 'rejected' && stopsAvailable;
         const datasets = [stops, schedules, features, routes].map((rows, i) => settled[i]?.status === 'rejected' ? [] : uniqueProvenance(rows.map(item => item.provenance)).slice(0, 10));
-        const result = { listingId, location, nearbyStops, schedules: schedulesAvailable ? { status: 'available', items: relevantSchedules } : { status: 'unavailable', reason: settled[1]?.status === 'rejected' ? reason(1, '') : 'Schedules unavailable because nearby stops cannot be established.', uncertainty: true, items: [] }, municipalFeatures, sourceMetadata: { stops: datasets[0], schedules: datasets[1], municipalFeatures: datasets[2], routing: datasets[3] }, uncertainty };
-        return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${nearbyStops.status === 'available' ? `${nearbyStops.totalWithinRadius} nearby stops, nearest ${nearbyStops.distanceType === 'pedestrian-route' ? 'pedestrian-route' : 'straight-line'} distance ${Math.round(nearbyStops.nearestDistanceMeters)} m${nearbyStops.distanceType === 'pedestrian-route' ? `, nearest straight-line distance ${Math.round(nearbyStops.nearestStraightLineDistanceMeters)} m` : ''}` : 'nearby stops unavailable'}; ${schedulesAvailable ? 'schedules available' : 'schedules unavailable'}; ${municipalFeatures.status === 'available' ? 'municipal features available' : 'municipal features unavailable'}.` }] };
+        const result = { listingId, location, nearbyStops, schedules: schedulesAvailable ? { status: 'available', items: relevantSchedules } : { status: 'unavailable', reason: settled[1]?.status === 'rejected' ? reason(1, '') : 'Schedules unavailable because nearby stops cannot be established.', uncertainty: true, items: [] }, municipalFeatures, sourceMetadata: { stops: datasets[0], schedules: datasets[1], municipalFeatures: datasets[2], routing: datasets[3], municipalLocations: uniqueProvenance([...municipalLocations.addresses.map(item => item.provenance), ...municipalLocations.districts.map(item => item.provenance)]).slice(0, 10) }, uncertainty };
+        const staleExplanation = staleDatasets.map(source => `${source.name} dataset checked ${source.checkedAt} is stale (${source.stale.reason === 'feed-end-date' ? 'feed end date passed' : 'over age'}); refresh error: ${source.stale.refreshError}`).join('. ');
+        return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${nearbyStops.status === 'available' ? `${nearbyStops.totalWithinRadius} nearby stops, nearest ${nearbyStops.distanceType === 'pedestrian-route' ? 'pedestrian-route' : 'straight-line'} distance ${Math.round(nearbyStops.nearestDistanceMeters)} m${nearbyStops.distanceType === 'pedestrian-route' ? `, nearest straight-line distance ${Math.round(nearbyStops.nearestStraightLineDistanceMeters)} m` : ''}` : 'nearby stops unavailable'}; ${schedulesAvailable ? 'schedules available' : 'schedules unavailable'}; ${municipalFeatures.status === 'available' ? 'municipal features available' : 'municipal features unavailable'}.${staleExplanation ? ` Stale data: ${staleExplanation}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });
   }
@@ -447,7 +454,7 @@ function haversineMeters(origin: { latitude: number; longitude: number }, latitu
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function uniqueProvenance(items: Array<{ name: string; sourceUrl: string; datasetDate: string; checkedAt: string; reuseTerms: string }>) {
+function uniqueProvenance(items: Array<{ name: string; sourceUrl: string; datasetDate: string; checkedAt: string; reuseTerms: string; stale?: { reason: 'over-age' | 'feed-end-date'; refreshError: string } }>) {
   const seen = new Set<string>();
   return items.filter(item => {
     const key = JSON.stringify(item);

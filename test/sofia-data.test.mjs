@@ -114,6 +114,7 @@ test('cache max age defaults to seven days and expired stop data refreshes with 
   assert.equal(fetches, 1);
   assert.equal(result[0].id, 'old');
   assert.equal(result[0].provenance.checkedAt, '2026-10-01T00:00:00.000Z');
+  assert.deepEqual(result[0].provenance.stale, { reason: 'over-age', refreshError: 'offline' });
 });
 
 test('GTFS feed end date makes cache stale even within cache age', async () => {
@@ -123,6 +124,15 @@ test('GTFS feed end date makes cache stale even within cache age', async () => {
   const result = await adapter.getStops();
   assert.equal(fetches, 1);
   assert.equal(result[0].provenance.checkedAt, '2026-10-10T00:00:00.000Z');
+  assert.equal(result[0].provenance.stale, undefined);
+});
+
+test('expired GTFS feed falls back with stale feed-end provenance and refresh error', async () => {
+  const cached = JSON.stringify([{ id: 'old', name: 'Old Stop', latitude: 42, longitude: 23, provenance: { name: 'Synthetic GTFS', sourceUrl: 'https://fixture.test', datasetDate: 'unknown', feedEndDate: '2026-10-09', checkedAt: '2026-10-09T00:00:00.000Z', reuseTerms: 'synthetic' } }]);
+  const adapter = new LocalSofiaDataAdapter({ cache: { read: async () => cached, write: async () => {} }, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchStops: async () => { throw new Error('offline GTFS'); } });
+  const [stop] = await adapter.getStops();
+  assert.deepEqual(stop.provenance.stale, { reason: 'feed-end-date', refreshError: 'offline GTFS' });
+  assert.equal(stop.provenance.checkedAt, '2026-10-09T00:00:00.000Z');
 });
 
 test('GTFS cache age still makes a feed stale when its feed end date is in the future', async () => {
@@ -153,7 +163,10 @@ test('municipal cache refresh failure returns valid prior datasets unchanged', a
   const districts = [{ name: 'Imaginary District', latitude: 42, longitude: 23, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance }];
   const cacheValues = new Map([['sofia-addresses.json', JSON.stringify(addresses)], ['sofia-districts.json', JSON.stringify(districts)]]);
   const adapter = new LocalSofiaDataAdapter({ cache: { read: async key => cacheValues.get(key), write: async () => {} }, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchMunicipalData: async () => { throw new Error('offline'); } });
-  assert.deepEqual(await adapter.getMunicipalLocations(), { addresses, districts });
+  const result = await adapter.getMunicipalLocations();
+  assert.deepEqual(result.addresses[0].provenance.stale, { reason: 'over-age', refreshError: 'offline' });
+  assert.equal(result.addresses[0].provenance.checkedAt, provenance.checkedAt);
+  assert.deepEqual(result.districts[0].provenance.stale, { reason: 'over-age', refreshError: 'offline' });
 });
 
 test('over-age complete municipal cache refreshes and persists both updated datasets', async () => {
@@ -180,7 +193,7 @@ test('over-age complete municipal cache refreshes and persists both updated data
   assert.deepEqual(JSON.parse(cacheValues.get('sofia-districts.json')), result.districts);
 });
 
-test('municipal cache write failure returns both complete prior datasets unchanged', async () => {
+test('municipal cache write failure returns complete prior datasets marked stale', async () => {
   const provenance = { name: 'old', sourceUrl: 'https://fixture.test', datasetDate: 'unknown', checkedAt: '2026-10-01T00:00:00.000Z', reuseTerms: 'synthetic' };
   const addresses = [{ settlement: 'Sofia', street: 'Fictional Road', region: 'A', latitude: 42, longitude: 23, provenance }];
   const districts = [{ name: 'Imaginary District', latitude: 42, longitude: 23, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance }];
@@ -191,7 +204,9 @@ test('municipal cache write failure returns both complete prior datasets unchang
     unzipAddresses: async () => 'rn;region;settlement;lareaunit;block;street;streetnum;entrance;n;e\n1;A;гр. София;;;ул. Нова;;;42.5;23.5'
   });
 
-  assert.deepEqual(await adapter.getMunicipalLocations(), { addresses, districts });
+  const result = await adapter.getMunicipalLocations();
+  assert.equal(result.addresses[0].provenance.stale.refreshError, 'disk full');
+  assert.equal(result.districts[0].provenance.stale.refreshError, 'disk full');
 });
 
 test('local adapter loads and caches both municipal location datasets with their distinct reuse terms', async () => {

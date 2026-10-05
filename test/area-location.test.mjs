@@ -5,7 +5,7 @@ import { resolveMunicipalLocation } from '../dist/area/location.js';
 import { Client, InMemoryTransport as ClientTransport } from '@modelcontextprotocol/client';
 import { InMemoryTransport as ServerTransport } from '@modelcontextprotocol/server';
 import { createServer } from '../dist/server.js';
-import { FixtureSofiaDataAdapter } from '../dist/adapter/sofia-data.js';
+import { FixtureSofiaDataAdapter, LocalSofiaDataAdapter } from '../dist/adapter/sofia-data.js';
 import { openStorage } from '../dist/storage/index.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -264,7 +264,27 @@ test('area_context reports unavailable transit and features when no Sofia source
     assert.equal(context.nearbyStops.status, 'unavailable');
     assert.equal(context.schedules.status, 'unavailable');
     assert.equal(context.municipalFeatures.status, 'unavailable');
-    assert.deepEqual(context.sourceMetadata, { stops: [], schedules: [], municipalFeatures: [], routing: [] });
+    assert.deepEqual(context.sourceMetadata, { stops: [], schedules: [], municipalFeatures: [], routing: [], municipalLocations: [] });
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context reports over-age municipal cache after failed refresh in provenance and explanation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-stale-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'stale-property', location: { city: 'Sofia', district: 'Imaginary', precision: 'neighbourhood' } });
+  const provenance = { name: 'Synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-09-01T00:00:00.000Z', reuseTerms: 'Synthetic' };
+  const districts = [{ name: 'КВ. IMAGINARY', latitude: 42, longitude: 23, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance }];
+  const cacheValues = new Map([['sofia-addresses.json', JSON.stringify([{ settlement: 'Sofia', street: 'Fictional Road', region: 'A', latitude: 42, longitude: 23, provenance }])], ['sofia-districts.json', JSON.stringify(districts)]]);
+  const adapter = new LocalSofiaDataAdapter({ cache: { read: async key => cacheValues.get(key), write: async () => {} }, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchMunicipalData: async () => { throw new Error('synthetic fetch failure'); } });
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-stale-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'stale-property' } });
+    assert.deepEqual(result.structuredContent.sourceMetadata.municipalLocations[0].stale, { reason: 'over-age', refreshError: 'synthetic fetch failure' });
+    assert.ok(result.structuredContent.uncertainty.some(text => /Synthetic districts.*2026-09-01.*over.*synthetic fetch failure/i.test(text)));
+    assert.match(result.content[0].text, /Synthetic districts dataset checked 2026-09-01.*over age.*synthetic fetch failure/i);
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
