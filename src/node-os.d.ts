@@ -4,6 +4,9 @@ declare module 'node:os' {
 
 declare module 'node:crypto' {
   export function randomUUID(): string;
+  export function createHash(algorithm: string): {
+    update(data: Uint8Array): { digest(encoding: 'hex'): string };
+  };
 }
 
 declare module 'node:util' {
