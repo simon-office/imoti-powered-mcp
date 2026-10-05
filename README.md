@@ -4,6 +4,8 @@ A conversational assistant that searches imot.bg, evaluates properties and remem
 
 **Status: stage 3 photo/location assessment, in development; owner live check pending.**
 
+See [product limitations](docs/limitations.md) for coverage and uncertainty boundaries, and [site terms and image-use permissions](docs/site-permissions.md) for the dated source review and decisions required before distribution.
+
 To refresh locally saved searches and watched listings while no chat session is open, run `npm run refresh --` from the
 repository. See [`docs/live-check.md`](docs/live-check.md) for the owner live-check procedure and safe reporting guidance.
 
