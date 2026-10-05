@@ -106,9 +106,18 @@ needed to substantiate the result.
 Use two or more listings already returned by your own stage 1 search and stored locally. The IDs below are made-up examples;
 replace them with IDs from your private session. These calls use the MCP tools exposed in the Claude Code session.
 
-1. Retrieve a bounded page of photos. `get_listing_photos` also returns the deterministic photo assessment, configured
-   provider findings and, when the host provider is selected, image content blocks for the host model to assess. Continue
-   with the returned `nextOffset` if non-null; do not collect or attach image content in your report.
+### Stage 3 check sequence
+
+For each of the same two or more locally stored listings, inspect the compact output first, then expand the evidence as needed.
+Check GTFS provenance and data availability; confirm that nearest-stop distance is explicitly straight-line, not walking
+distance. For the boulevard assessment, verify the point and spread are constrained to the named neighbourhood and note the
+neighbourhood used. Treat missing provenance or unavailable data as unavailable, not as a match.
+
+1. Retrieve photo pages until every page has been checked. Each request is capped at 200,000 bytes. Record named low-resolution
+   photos and inspect the full-size inventory's dimensions; compare inventory entries without saving or sharing image bytes.
+   `get_listing_photos` also returns the deterministic photo assessment, configured provider findings and, when the host provider is
+   selected, image content blocks for the host model. Follow `nextOffset` until null to cover all photo pages; do not collect
+   or attach image content in your report.
 
    ```json
    { "name": "get_listing_photos", "arguments": { "listingId": "1c100000000000001", "offset": 0 } }
@@ -136,8 +145,10 @@ which receives image content blocks. Configure Ollama with `OLLAMA_ENDPOINT` and
 assessment tries the next provider before host fallback. Keep the key local; never put credentials in a command transcript
 or report. Record the provider actually named in the response.
 For each returned photo or location/context source, inspect source/provenance, date or observation timestamp, and whether
-the same reference/source is reused; note missing metadata as unavailable rather than guessing. Review uncertainty and
-coverage before drawing conclusions.
+the same reference/source is reused; note missing metadata as unavailable rather than guessing. For transit, record GTFS
+provenance and availability. Review compact output and then the detailed evidence, including the straight-line nearest-stop
+text and the neighbourhood-constrained boulevard point/spread, before drawing conclusions. If Ollama or OpenRouter is
+unavailable, explicitly record that Ollama/OpenRouter were not checked when unavailable; do not imply either ran. Schedule joins were out of scope and not checked; do not test them as part of this live check.
 
 ### Manual labelled sample and owner-completed report
 
@@ -149,20 +160,25 @@ counts for each field. Hidden defects cannot be validated from photos.
 
 Fill this template only after the owner's live run; counts and examples below are deliberately blank and are not results:
 
-| Field | Correct | Incorrect | Uncertain | Redacted example (image reference only) |
-|---|---:|---:|---:|---|
-| Visible room | — | — | — | — |
-| Finish | — | — | — | — |
-| Apparent renovation need | — | — | — | — |
-| Render/photo | — | — | — | — |
-| Coverage | — | — | — | — |
-| Location match | — | — | — | — |
-| Location precision | — | — | — | — |
-| Nearby-stop/context accuracy | — | — | — | — |
+| Field | Correct | Incorrect | Uncertain | Unavailable | Redacted image reference / note |
+|---|---:|---:|---:|---:|---|
+| Visible room | — | — | — | — | — |
+| Finish | — | — | — | — | — |
+| Apparent renovation need | — | — | — | — | — |
+| Render/photo | — | — | — | — | — |
+| Coverage | — | — | — | — | — |
+| Location match | — | — | — | — | — |
+| Location precision | — | — | — | — | — |
+| Nearby-stop/context accuracy | — | — | — | — | — |
+| GTFS provenance and availability | — | — | — | — | — |
+| Straight-line nearest-stop text | — | — | — | — | — |
+| Boulevard point/spread in named neighbourhood | — | — | — | — | — |
+| Named low-resolution photo / full-size dimensions | — | — | — | — | — |
 
-**Owner-completed template:** date/time: ___; runtime (Node, OS, Claude Code/model): ___; commands/tool calls: ___;
-provider(s): ___; sample size: ___; observed results/counts: ___; unavailable cases: ___; redacted examples with image
-references: ___; errors: ___. Do not fabricate Simon's outcomes. Exclude photos, exact addresses, credentials and personal
-data from reports and fixtures; do not include photos, exact addresses, credentials, or personal data in any shared report.
-Share only redacted image references, never image bytes, URLs that expose exact locations,
-or copied listing content.
+**Owner-completed template:** date/time: ___; runtime (Node, OS, browser, Claude Code/model): ___; commit: ___;
+commands/tool calls: ___; provider actually returned: ___; sample size: ___; per-field correct/incorrect/uncertain/unavailable
+counts: use the table; Ollama/OpenRouter were not checked when unavailable (if applicable): ___; schedule joins out of scope/not
+checked: yes; redacted image references: ___; errors: ___. Do not fabricate owner execution or outcomes. Exclude photo bytes,
+exact addresses, credentials and personal data from reports and fixtures. Exclude photos, exact addresses, credentials and personal
+data from any shared report. Never share photo bytes, exact addresses, or credentials. Share only redacted image
+references and error text scrubbed of private values.
