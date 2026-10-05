@@ -90,7 +90,7 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test('get_listing_photos returns ordered image bytes and does not persist them', async () => {
+test('get_listing_photos returns ordered bounded metadata and does not persist image bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-'));
   const databasePath = join(directory, 'test.db');
   const storage = openStorage(databasePath);
@@ -104,7 +104,7 @@ test('get_listing_photos returns ordered image bytes and does not persist them',
       assert.equal(result.isError, undefined, result.content?.[0]?.text);
       assert.equal(result.structuredContent.listingId, listingId);
       assert.deepEqual(result.structuredContent.photos.map(photo => photo.reference), references);
-      assert.ok(result.structuredContent.photos[0].bytes.length > 0);
+      assert.equal(Object.hasOwn(result.structuredContent.photos[0], 'bytes'), false);
       assert.equal(result.structuredContent.photos[1].unavailableReason, 'Generated fixture image unavailable.');
       assert.ok(result.structuredContent.photos.every(photo => photo.mediaType.startsWith('image/')));
       assert.deepEqual(result.structuredContent.uncertainty, [`Photo ${references[1]}: Generated fixture image unavailable.`]);
@@ -112,6 +112,48 @@ test('get_listing_photos returns ordered image bytes and does not persist them',
     assert.deepEqual(storage.getListing(listingId).photos, references, 'stored listing retains only the references');
     assert.equal(Object.hasOwn(storage.getListing(listingId), 'bytes'), false);
   } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
+});
+
+test('photo responses assess six photos in-process, bound host images, and continue by offset', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-pages-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const refs = Array.from({ length: 6 }, (_, i) => `https://fake.test/${i}.jpg`);
+  storage.upsertListing({ id: 'six-photos', photos: refs });
+  const bytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 2, 128, 1, 64, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0]);
+  const adapter = new FixtureAdapter({}, { photos: Object.fromEntries(refs.map(ref => [ref, bytes])) });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'six-photos' } });
+      assert.ok(result.structuredContent.assessment.images.every(image => image.width === 320 && image.height === 640));
+      assert.equal(result.structuredContent.nextOffset, 3);
+      assert.equal(result.content.filter(block => block.type === 'image').length, 3);
+      assert.ok(Buffer.byteLength(JSON.stringify(result), 'utf8') <= 64 * 1024);
+      assert.doesNotMatch(JSON.stringify(result), /"bytes"\s*:\s*\[/);
+      const next = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'six-photos', offset: 3 } });
+      assert.equal(next.content.filter(block => block.type === 'image').length, 3);
+      assert.equal(next.structuredContent.nextOffset, null);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('photo fallback requests the site big variant for host image blocks', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-variants-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const reference = 'https://imotstatic1.focus.bg/photosimotbg/a/b/big1/photo.jpg';
+  const preview = 'https://imotstatic1.focus.bg/photosimotbg/a/b/big/photo.jpg';
+  storage.upsertListing({ id: 'variant-photo', photos: [reference] });
+  const originalBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 2, 128, 1, 64, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0]);
+  const previewBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 1, 194, 3, 32, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0]);
+  const adapter = new FixtureAdapter({}, { photos: { [reference]: originalBytes, [preview]: previewBytes } });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'variant-photo' } });
+      assert.equal(result.content.filter(block => block.type === 'image').length, 1);
+      assert.equal(result.content.find(block => block.type === 'image').data, Buffer.from(previewBytes).toString('base64'));
+      assert.equal(result.structuredContent.assessment.images[0].width, 320);
+      assert.equal(result.structuredContent.assessment.images[0].height, 640);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('get_listing_photos reports unavailable listing as an explicit tool error', async () => {
@@ -354,7 +396,25 @@ test('watched refresh preserves fetched listing details when search-card data is
       assert.equal(afterRefresh.location.street, original.location.street);
       assert.equal(afterRefresh.gas, original.gas);
       assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'edited').length, 0);
-      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'price_change').length, 1);
+      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'price_change').length, 0, 'a card must not be compared against an earlier detail-page observation');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('card observations compare only with prior card observations when detail fields differ', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-source-snapshots-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const id = '1c100000000000099';
+  storage.recordObservation({ listingId: id, observedAt: '2026-01-01T00:00:00.000Z', sourceUrl: `https://www.imot.bg/obiava-${id}`, raw: {}, normalized: { id, title: 'Invented home', price: { amount: 125000, currency: 'EUR' }, location: { precision: 'neighbourhood', district: 'Изток' }, construction: 'not supplied', seller: { name: 'not supplied' } } });
+  const html = `<div class="item" id="ida${id}"><a class="title" href="/obiava-${id}">Продава 3-СТАЕН <location>град София, Изток</location></a><div class="price">125 000 €</div><div class="info">ул. Измислена 7, Тухла</div><div class="seller"><div class="name">Агенция Пример</div></div></div>`;
+  const adapter = { async fetchPage(url) { return { url, status: 200, html, fetchedAt: new Date() }; }, async close() {} };
+  storage.saveSearch({ id: 'source-test', criteria: {}, createdAt: '2026-01-01T00:00:00.000Z' });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      await client.callTool({ name: 'refresh_watched', arguments: {} });
+      assert.equal(storage.listChanges().filter(event => event.listingId === id && event.kind === 'edited').length, 0);
+      assert.equal(storage.listObservations(id).filter(observation => !observation.sourceUrl.includes('/obiava-')).length, 2);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

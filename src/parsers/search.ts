@@ -29,8 +29,13 @@ export type SearchPage = {
 
 const text = (node: HTMLElement | null | undefined): string | null => {
   const value = node?.textContent.replace(/\s+/g, ' ').trim();
-  return value || null;
+  return value ? redactPhoneNumbers(value) : null;
 };
+
+function redactPhoneNumbers(value: string): string {
+  return value.replace(/(?<!\w)(?:\+?\d[\d\s()./-]{5,}\d)(?!\w)/g, candidate =>
+    candidate.replace(/\D/g, '').length >= 7 ? '[phone redacted]' : candidate);
+}
 
 function absoluteHttps(href: string | null, base: string): string | null {
   if (!href) return null;
