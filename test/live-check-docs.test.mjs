@@ -79,7 +79,33 @@ test('live-check documents stage 2 event expectations and safe reporting', async
 test('README reports stage 3 in development and documents local refresh', async () => {
   const readme = await read('README.md');
   assert.match(readme, /Status: stage 3 photo\/location assessment, in development/i);
+  assert.match(readme, /owner live check/i);
   assert.match(readme, /npm run refresh --/);
+});
+
+test('stage 3 owner workflow checks location provenance and complete bounded photo inventory', async () => {
+  const doc = await read('docs/live-check.md');
+  assert.match(doc, /two or more listings already returned by your own stage 1 search and stored locally/i);
+  for (const phrase of [
+    /compact output/i,
+    /GTFS[\s\S]*?provenance[\s\S]*?availability/i,
+    /straight-line[\s\S]*?nearest-stop/i,
+    /neighbourhood-constrained[\s\S]*?boulevard[\s\S]*?point[\s\S]*?spread/i,
+    /all photo pages/i,
+    /200,000 bytes/i,
+    /named low-resolution\s+photos/i,
+    /full-size inventory[\s\S]*?dimensions/i,
+  ]) assert.match(doc, phrase);
+});
+
+test('stage 3 report template captures unavailable providers, counts, redactions, and scope limits', async () => {
+  const doc = await read('docs/live-check.md');
+  assert.match(doc, /runtime[\s\S]*?commit[\s\S]*?provider[\s\S]*?sample size/i);
+  assert.match(doc, /correct[\s\S]*?incorrect[\s\S]*?uncertain[\s\S]*?unavailable/i);
+  assert.match(doc, /Ollama[\s\S]*?OpenRouter[\s\S]*?were not checked when unavailable/i);
+  assert.match(doc, /schedule joins were out of scope and not checked/i);
+  assert.match(doc, /redacted image references[\s\S]*?errors/i);
+  assert.match(doc, /never share photo bytes[\s\S]*?exact addresses[\s\S]*?credentials/i);
 });
 
 test('README documents safe launchd and cron refresh schedules', async () => {
