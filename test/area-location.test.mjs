@@ -98,8 +98,11 @@ test('area_context uses straight-line stop distances when routes are absent', as
     const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'straight-property', radiusMeters: 1000 } });
     const stops = result.structuredContent.nearbyStops;
     assert.equal(stops.distanceType, 'straight-line');
+    assert.equal(stops.nearestStraightLineDistanceMeters, stops.nearestDistanceMeters);
+    assert.match(result.content[0].text, new RegExp(`nearest straight-line distance ${Math.round(stops.nearestStraightLineDistanceMeters)} m`));
     assert.deepEqual(stops.items.map(item => item.id), ['near', 'far']);
-    assert.ok(stops.items.every(item => typeof item.distanceMeters === 'number' && item.provenance.sourceUrl === provenance.sourceUrl));
+    assert.ok(stops.items.every(item => typeof item.distanceMeters === 'number'));
+    assert.equal(result.structuredContent.sourceMetadata.stops[0].sourceUrl, provenance.sourceUrl);
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -122,7 +125,7 @@ test('area_context resolves a stored street from adapter municipal data before m
     assert.deepEqual(result.structuredContent.location.coordinates, { latitude: 42.7, longitude: 23.3 });
     assert.equal(result.structuredContent.location.provenance.sourceUrl, provenance.sourceUrl);
     assert.equal(result.structuredContent.nearbyStops.items[0].distanceType, 'straight-line');
-    assert.equal(result.structuredContent.nearbyStops.items[0].provenance.sourceUrl, stopProvenance.sourceUrl);
+    assert.equal(result.structuredContent.sourceMetadata.stops[0].sourceUrl, stopProvenance.sourceUrl);
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -150,6 +153,8 @@ test('area_context returns dated provenance and explicit unavailable distances f
     assert.equal(result.isError, undefined, result.content?.[0]?.text);
     assert.equal(result.structuredContent.location.precision, 'unknown');
     assert.equal(result.structuredContent.nearbyStops.status, 'unavailable');
+    assert.equal('nearestStraightLineDistanceMeters' in result.structuredContent.nearbyStops, false);
+    assert.doesNotMatch(result.content[0].text, /nearest .*distance/);
     assert.match(result.structuredContent.nearbyStops.reason, /coordinates|location/i);
     assert.equal(result.structuredContent.sourceMetadata.stops[0].datasetDate, 'synthetic-2026-01-01');
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
@@ -184,9 +189,35 @@ test('area_context returns coordinate-backed routed stops, schedules, and featur
     assert.deepEqual(context.nearbyStops.items.map(item => [item.id, item.distanceMeters]), [['near-stop', 350]]);
     assert.deepEqual(context.schedules.items.map(item => item.stopId), ['near-stop']);
     assert.deepEqual(context.municipalFeatures.items.map(item => [item.id, item.distanceMeters]), [['near-park', 420]]);
-    assert.equal(context.nearbyStops.provenance[0].routing.datasetDate, 'synthetic-2026-03-04');
+    assert.match(result.content[0].text, /pedestrian-route distance/);
+    assert.ok(Math.abs(context.nearbyStops.nearestStraightLineDistanceMeters - 137.9933) < 0.001);
+    assert.match(result.content[0].text, /nearest straight-line distance 138 m/);
     assert.equal(context.sourceMetadata.stops[0].datasetDate, 'synthetic-2026-03-04');
     assert.equal(context.sourceMetadata.routing[0].sourceUrl, 'https://fixture.test/area');
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context measures nearest straight-line distance across routed stops before truncation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-routed-straight-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'distance-property', location: { city: 'Sofia', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const provenance = { name: 'Synthetic routes', sourceUrl: 'https://fixture.test/routes', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const stops = Array.from({ length: 12 }, (_, i) => ({ id: `distance-stop-${i}`, name: `Imaginary Distance Stop ${i}`, latitude: 42.7 + (12 - i) / 10000, longitude: 23.3, provenance }));
+  const adapter = new FixtureSofiaDataAdapter({ stops, walkingRoutes: stops.map((stop, i) => ({ origin: 'distance-property', destination: stop.id, distanceMeters: 200 + i * 10, durationSeconds: 150 + i * 10, provenance })) });
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-distance-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'distance-property', radiusMeters: 500 } });
+    const nearby = result.structuredContent.nearbyStops;
+    assert.equal(nearby.totalWithinRadius, 12);
+    assert.equal(nearby.items.length, 10);
+    assert.equal(nearby.distanceType, 'pedestrian-route');
+    assert.equal(nearby.nearestDistanceMeters, 200);
+    assert.deepEqual(nearby.items.map(item => item.distanceMeters), Array.from({ length: 10 }, (_, i) => 200 + i * 10));
+    assert.ok(Math.abs(nearby.nearestStraightLineDistanceMeters - 11.1195) < 0.001, 'nearest coordinate distance belongs to the twelfth routed stop');
+    assert.match(result.content[0].text, /12 nearby stops, nearest pedestrian-route distance 200 m, nearest straight-line distance 11 m/);
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -207,5 +238,89 @@ test('area_context reports unavailable transit and features when no Sofia source
     assert.equal(context.schedules.status, 'unavailable');
     assert.equal(context.municipalFeatures.status, 'unavailable');
     assert.deepEqual(context.sourceMetadata, { stops: [], schedules: [], municipalFeatures: [], routing: [] });
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context isolates source failures, deduplicates stops and bounds structured output', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-resilient-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'resilient-property', location: { city: 'Sofia', district: 'Iztok', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const provenance = { name: 'Synthetic GTFS', sourceUrl: 'https://fixture.test/gtfs', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const stops = Array.from({ length: 5000 }, (_, i) => ({ id: `stop-${i}`, name: `Imaginary Stop ${Math.floor(i / 2)}`, latitude: 42.70001 + Math.floor(i / 2) / 1e8, longitude: 23.3, provenance }));
+  const adapter = {
+    async getStops() { return stops; }, async getSchedules() { throw new Error('schedule fixture failure'); },
+    async getMunicipalFeatures() { return [{ id: 'park-x', name: 'Imaginary Park', category: 'park', latitude: 42.701, longitude: 23.301, provenance }]; },
+    async getWalkingRoutes() { throw new Error('routing fixture failure'); },
+    async getMunicipalLocations() { return { addresses: [], districts: [] }; },
+  };
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-resilient-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'resilient-property', radiusMeters: 1000 } });
+    const context = result.structuredContent;
+    assert.equal(context.location.coordinates.latitude, 42.7);
+    assert.equal(context.nearbyStops.totalWithinRadius, 2500);
+    assert.equal(context.nearbyStops.items.length, 10);
+    assert.ok(context.nearbyStops.items.every((item, index, all) => index === 0 || all[index - 1].distanceMeters <= item.distanceMeters));
+    assert.equal(context.nearbyStops.items[0].sourceIds.length, 2);
+    assert.equal(context.schedules.status, 'unavailable');
+    assert.match(context.schedules.reason, /schedule fixture failure/);
+    assert.equal(context.municipalFeatures.status, 'unavailable');
+    assert.match(context.municipalFeatures.reason, /routing fixture failure/);
+    assert.equal(context.sourceMetadata.stops.length, 1);
+    assert.equal('provenance' in context.nearbyStops.items[0], false);
+    assert.ok(Buffer.byteLength(JSON.stringify(context)) < 20000);
+    assert.match(result.content[0].text, /2500/);
+    assert.match(result.content[0].text, /straight-line/);
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context preserves results when each individual Sofia source rejects', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-rejection-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'failure-property', location: { city: 'Sofia', district: 'Iztok', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const provenance = { name: 'Synthetic fixture', sourceUrl: 'https://fixture.test/data', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  for (const failedMethod of ['getStops', 'getSchedules', 'getMunicipalFeatures', 'getWalkingRoutes']) {
+    const adapter = {
+      async getStops() { if (failedMethod === 'getStops') throw Error('failed getStops'); return [{ id: 'source-stop', name: 'Imaginary Stop', latitude: 42.701, longitude: 23.3, provenance }]; },
+      async getSchedules() { if (failedMethod === 'getSchedules') throw Error('failed getSchedules'); return []; },
+      async getMunicipalFeatures() { if (failedMethod === 'getMunicipalFeatures') throw Error('failed getMunicipalFeatures'); return []; },
+      async getWalkingRoutes() { if (failedMethod === 'getWalkingRoutes') throw Error('failed getWalkingRoutes'); return []; },
+      async getMunicipalLocations() { return { addresses: [], districts: [] }; },
+    };
+    const server = createServer({ storage, sofiaData: adapter });
+    const client = new Client({ name: 'area-failure-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+    try {
+      await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+      const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'failure-property' } });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.equal(result.structuredContent.location.coordinates.latitude, 42.7);
+      assert.ok(result.structuredContent.uncertainty.length > 0);
+      assert.ok(result.content[0].text.includes('unavailable'));
+    } finally { await client.close(); await server.close(); }
+  }
+  storage.close(); await rm(directory, { recursive: true, force: true });
+});
+
+test('area_context bounds IDs and provenance for 5000 duplicate stops', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-duplicate-limit-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'duplicate-property', location: { city: 'Sofia', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const stops = Array.from({ length: 5000 }, (_, i) => ({ id: `synthetic-stop-source-${i}-${'x'.repeat(80)}`, name: 'Imaginary Duplicate Stop', latitude: 42.701, longitude: 23.3, provenance: { name: `Synthetic source ${i}`, sourceUrl: `https://fixture.test/source/${i}`, datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' } }));
+  const adapter = { async getStops() { return stops; }, async getSchedules() { return []; }, async getMunicipalFeatures() { return []; }, async getWalkingRoutes() { return []; }, async getMunicipalLocations() { return { addresses: [], districts: [] }; } };
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-duplicate-limit-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'duplicate-property', radiusMeters: 1000 } });
+    const context = result.structuredContent;
+    assert.equal(context.nearbyStops.totalWithinRadius, 1);
+    assert.ok(context.nearbyStops.items[0].sourceIds.length < 10);
+    assert.equal(context.sourceMetadata.stops.length, 10);
+    assert.ok(Buffer.byteLength(JSON.stringify(context)) < 20000);
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

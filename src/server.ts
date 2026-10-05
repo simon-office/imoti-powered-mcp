@@ -168,36 +168,54 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       try {
         const listing = storage.getListing(listingId);
         if (!listing) return { isError: true, content: [{ type: 'text' as const, text: `Listing ${listingId} was not found in local storage.` }] };
-        const [stops, schedules, features, routes, municipalLocations] = areaData
-          ? await Promise.all([areaData.getStops(), areaData.getSchedules(), areaData.getMunicipalFeatures(), areaData.getWalkingRoutes(), areaData.getMunicipalLocations()])
-          : [[], [], [], [], { addresses: [], districts: [] }] as [NormalizedStop[], NormalizedSchedule[], NormalizedMunicipalFeature[], NormalizedWalkingRoute[], { addresses: []; districts: [] }];
+        const methods = areaData ? [areaData.getStops(), areaData.getSchedules(), areaData.getMunicipalFeatures(), areaData.getWalkingRoutes(), areaData.getMunicipalLocations()] : [];
+        const settled = await Promise.allSettled(methods);
+        const values = settled.map(item => item.status === 'fulfilled' ? item.value : undefined);
+        const reason = (index: number, fallback: string) => settled[index]?.status === 'rejected' ? errorMessage((settled[index] as PromiseRejectedResult).reason) : fallback;
+        const stops = (values[0] ?? []) as NormalizedStop[];
+        const schedules = (values[1] ?? []) as NormalizedSchedule[];
+        const features = (values[2] ?? []) as NormalizedMunicipalFeature[];
+        const routes = (values[3] ?? []) as NormalizedWalkingRoute[];
+        const municipalLocations = (values[4] ?? { addresses: [], districts: [] }) as { addresses: []; districts: [] };
         const location = resolveMunicipalLocation(listing, municipalLocations);
         const uncertainty = [...location.uncertainty];
+        for (let index = 0; index < settled.length; index++) if (settled[index]?.status === 'rejected') uncertainty.push(`${['Stops', 'Schedules', 'Municipal features', 'Walking routes', 'Municipal locations'][index]} data is unavailable: ${reason(index, '')}`);
         const findRoute = (destination: string) => routes.find(route => route.origin === listingId && route.destination === destination);
-        const routedStops = location.coordinates ? stops.flatMap((stop: NormalizedStop) => {
+        const routedStops = location.coordinates && settled[3]?.status !== 'rejected' ? stops.flatMap((stop: NormalizedStop) => {
           const route = findRoute(stop.id);
           return route && route.distanceMeters <= radiusMeters ? [{ ...stop, distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds, routingProvenance: route.provenance }] : [];
         }) : [];
-        const routedFeatures = location.coordinates ? features.flatMap((feature: NormalizedMunicipalFeature) => {
+        const routedFeatures = location.coordinates && settled[3]?.status !== 'rejected' ? features.flatMap((feature: NormalizedMunicipalFeature) => {
           const route = findRoute(feature.id);
           return route && route.distanceMeters <= radiusMeters ? [{ ...feature, distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds, routingProvenance: route.provenance }] : [];
         }) : [];
-        const stopsAvailable = location.coordinates !== undefined && routes.some(route => route.origin === listingId && stops.some(stop => stop.id === route.destination));
-        const featuresAvailable = location.coordinates !== undefined && routes.some(route => route.origin === listingId && features.some(feature => feature.id === route.destination));
-        const straightStops = location.coordinates && !stopsAvailable ? stops.flatMap(stop => {
+        const stopsAvailable = location.coordinates !== undefined && settled[0]?.status !== 'rejected' && settled[3]?.status !== 'rejected' && routes.some(route => route.origin === listingId && stops.some(stop => stop.id === route.destination));
+        const featuresAvailable = location.coordinates !== undefined && settled[2]?.status !== 'rejected' && settled[3]?.status !== 'rejected' && routes.some(route => route.origin === listingId && features.some(feature => feature.id === route.destination));
+        const straightStops = location.coordinates && !stopsAvailable && settled[0]?.status !== 'rejected' ? stops.flatMap(stop => {
           const distanceMeters = haversineMeters(location.coordinates!, stop.latitude, stop.longitude);
           return distanceMeters <= radiusMeters ? [{ ...stop, distanceMeters, distanceType: 'straight-line' as const }] : [];
         }).sort((a, b) => a.distanceMeters - b.distanceMeters) : [];
-        const nearbyStops = stopsAvailable ? { status: 'available', distanceType: 'pedestrian-route', items: routedStops, provenance: routedStops.map(item => ({ stop: item.provenance, routing: item.routingProvenance })) }
-          : straightStops.length ? { status: 'available', distanceType: 'straight-line', items: straightStops, provenance: straightStops.map(item => item.provenance) }
-          : { status: 'unavailable', reason: `No stop coordinates are available within the radius for this location.`, provenance: stops.map(item => item.provenance) };
-        const municipalFeatures = featuresAvailable ? { status: 'available', items: routedFeatures, provenance: routedFeatures.map(item => ({ feature: item.provenance, routing: item.routingProvenance })) } : { status: 'unavailable', reason: `No property-specific routed municipal feature distances are available for this location.`, provenance: features.map(item => item.provenance) };
+        const groupedStops = (stopsAvailable ? routedStops : straightStops).reduce((groups: Map<string, any>, stop: any) => {
+          const key = `${stop.name.normalize('NFKC').trim().toLocaleLowerCase()}|${stop.latitude}|${stop.longitude}`;
+          const prior = groups.get(key);
+          const { provenance: _provenance, routingProvenance: _routingProvenance, ...conciseStop } = stop;
+          if (prior) { if (prior.sourceIds.length < 5) prior.sourceIds.push(stop.id); } else groups.set(key, { ...conciseStop, sourceIds: [stop.id] });
+          return groups;
+        }, new Map());
+        const sortedStops = [...groupedStops.values()].sort((a, b) => a.distanceMeters - b.distanceMeters);
+        const nearestStraightLineDistanceMeters = sortedStops.reduce((nearest, stop) => Math.min(nearest, haversineMeters(location.coordinates!, stop.latitude, stop.longitude)), Infinity);
+        const nearbyStops = settled[0]?.status === 'rejected' ? { status: 'unavailable', reason: reason(0, 'Stops unavailable.'), uncertainty: true, totalWithinRadius: 0, items: [] }
+          : sortedStops.length ? { status: 'available', distanceType: stopsAvailable ? 'pedestrian-route' : 'straight-line', totalWithinRadius: sortedStops.length, nearestDistanceMeters: sortedStops[0].distanceMeters, nearestStraightLineDistanceMeters, items: sortedStops.slice(0, 10) }
+          : { status: 'unavailable', reason: 'No stop coordinates are available within the radius for this location.', uncertainty: true, totalWithinRadius: 0, items: [] };
+        const municipalFeatures = settled[2]?.status === 'rejected' || settled[3]?.status === 'rejected' || !featuresAvailable ? { status: 'unavailable', reason: settled[2]?.status === 'rejected' ? reason(2, '') : settled[3]?.status === 'rejected' ? reason(3, '') : 'No property-specific routed municipal feature distances are available for this location.', uncertainty: true, items: [] } : { status: 'available', items: routedFeatures.slice(0, 10).map(({ provenance: _provenance, routingProvenance: _routingProvenance, ...item }) => item) };
         const stopIds = stopsAvailable ? new Set(routedStops.map(stop => stop.id)) : new Set<string>();
-        const relevantSchedules = schedules.filter((schedule: NormalizedSchedule) => stopIds.has(schedule.stopId));
+        const relevantSchedules = schedules.filter((schedule: NormalizedSchedule) => stopIds.has(schedule.stopId)).slice(0, 10);
         if (!stopsAvailable && !straightStops.length) uncertainty.push('Nearby stops and schedules are unavailable because location coordinates or stops are not established.');
         else if (!stopsAvailable) uncertainty.push('Nearby stop distances are straight-line estimates and do not represent walking routes.');
-        const result = { listingId, location, nearbyStops, schedules: stopsAvailable ? { status: 'available', items: relevantSchedules, provenance: relevantSchedules.map(item => item.provenance) } : { status: 'unavailable', reason: 'Schedules unavailable because nearby stops cannot be established.', provenance: schedules.map(item => item.provenance) }, municipalFeatures, sourceMetadata: { stops: stops.map(item => item.provenance), schedules: schedules.map(item => item.provenance), municipalFeatures: features.map(item => item.provenance), routing: routes.map(item => item.provenance) }, uncertainty };
-        return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${stopsAvailable ? `${routedStops.length} routed stops` : 'nearby transit unavailable'}; ${featuresAvailable ? `${routedFeatures.length} routed features` : 'nearby features unavailable'}.` }] };
+        const schedulesAvailable = settled[1]?.status !== 'rejected' && stopsAvailable;
+        const datasets = [stops, schedules, features, routes].map((rows, i) => settled[i]?.status === 'rejected' ? [] : uniqueProvenance(rows.map(item => item.provenance)).slice(0, 10));
+        const result = { listingId, location, nearbyStops, schedules: schedulesAvailable ? { status: 'available', items: relevantSchedules } : { status: 'unavailable', reason: settled[1]?.status === 'rejected' ? reason(1, '') : 'Schedules unavailable because nearby stops cannot be established.', uncertainty: true, items: [] }, municipalFeatures, sourceMetadata: { stops: datasets[0], schedules: datasets[1], municipalFeatures: datasets[2], routing: datasets[3] }, uncertainty };
+        return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${nearbyStops.status === 'available' ? `${nearbyStops.totalWithinRadius} nearby stops, nearest ${nearbyStops.distanceType === 'pedestrian-route' ? 'pedestrian-route' : 'straight-line'} distance ${Math.round(nearbyStops.nearestDistanceMeters)} m${nearbyStops.distanceType === 'pedestrian-route' ? `, nearest straight-line distance ${Math.round(nearbyStops.nearestStraightLineDistanceMeters)} m` : ''}` : 'nearby stops unavailable'}; ${schedulesAvailable ? 'schedules available' : 'schedules unavailable'}; ${municipalFeatures.status === 'available' ? 'municipal features available' : 'municipal features unavailable'}.` }] };
       } catch (error) { return toolError(error); }
     });
   }
@@ -423,6 +441,20 @@ function haversineMeters(origin: { latitude: number; longitude: number }, latitu
   const dLat = radians(latitude - origin.latitude), dLon = radians(longitude - origin.longitude);
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(origin.latitude)) * Math.cos(radians(latitude)) * Math.sin(dLon / 2) ** 2;
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function uniqueProvenance(items: Array<{ name: string; sourceUrl: string; datasetDate: string; checkedAt: string; reuseTerms: string }>) {
+  const seen = new Set<string>();
+  return items.filter(item => {
+    const key = JSON.stringify(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isDetailObservation(sourceUrl: string): boolean {
