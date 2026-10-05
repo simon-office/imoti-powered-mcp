@@ -130,6 +130,7 @@ test('local adapter loads and caches both municipal location datasets with their
   assert.equal(first.addresses[0].longitude, 23.5);
   assert.ok(Math.abs(first.districts[0].latitude - 42.3333333333) < 0.000001);
   assert.ok(Math.abs(first.districts[0].longitude - 23.6666666667) < 0.000001);
+  assert.deepEqual(first.districts[0].geometry, { type: 'MultiPolygon', coordinates: [[[[23, 42], [24, 42], [24, 43], [23, 42]]]] });
   assert.equal(first.addresses[0].provenance.reuseTerms, 'CC-BY');
   assert.match(first.districts[0].provenance.reuseTerms, /Не са зададени лицензни права/);
 });
