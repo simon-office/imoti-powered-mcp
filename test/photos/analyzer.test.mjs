@@ -141,3 +141,31 @@ test('reports zero inventory and coverage uncertainty when no photos were suppli
   assert.deepEqual(assessment.summary, { photoCount: 0, uniqueCount: 0, duplicateGroups: [], totalBytes: 0 });
   assert.match(assessment.uncertainty.join(' '), /coverage/i);
 });
+
+test('reports JPEG SOF and PNG IHDR dimensions and deterministic inventory thresholds', () => {
+  const jpeg = Buffer.from([0xff,0xd8,0xff,0xc0,0,17,8,0x02,0x80,0x02,0x80,3,1,0x11,0,2,0x11,0,3,0x11,0,0xff,0xd9]);
+  const png = Buffer.alloc(33);
+  png.set([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0,0,0,13,0x49,0x48,0x44,0x52]);
+  png.writeUInt32BE(640, 16);
+  png.writeUInt32BE(640, 20);
+  const report = analyzePhotos([
+    { listingId: 'fake', reference: 'jpeg', mediaType: 'image/jpeg', bytes: jpeg },
+    { listingId: 'fake', reference: 'png', mediaType: 'image/png', bytes: png },
+  ]);
+  assert.deepEqual([report.images[0].width, report.images[0].height], [640, 640]);
+  assert.deepEqual([report.images[1].width, report.images[1].height], [640, 640]);
+  assert.ok(report.images[1].observations.some(value => /PNG signature/i.test(value)));
+  assert.match(report.uncertainty.join(' '), /not been observed for real-site JPEG photos/i);
+
+  const small = Buffer.from(jpeg); small[9] = 0x02; small[10] = 0x7f;
+  const narrow = Buffer.from(jpeg); narrow[9] = 0x01; narrow[10] = 0x2c;
+  const wide = Buffer.from(jpeg); wide[9] = 0x05; wide[10] = 0x01;
+  const thresholds = analyzePhotos([
+    { listingId: 'fake', reference: 'small', mediaType: 'image/jpeg', bytes: small },
+    { listingId: 'fake', reference: 'narrow', mediaType: 'image/jpeg', bytes: narrow },
+    { listingId: 'fake', reference: 'wide', mediaType: 'image/jpeg', bytes: wide },
+  ]);
+  assert.match(thresholds.images[0].observations.join(' '), /below the 640-pixel/i);
+  assert.match(thresholds.images[1].observations.join(' '), /outside the 0.5–2.0/i);
+  assert.match(thresholds.images[2].observations.join(' '), /outside the 0.5–2.0/i);
+});

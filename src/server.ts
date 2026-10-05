@@ -11,6 +11,7 @@ import { buildSearchUrls, verifyFilters } from './search/url-builder.js';
 import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
 import { resolveDistrict } from './search/slugs.js';
+import { analyzePhotos } from './photos/analyzer.js';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -109,24 +110,27 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
     const { adapter, storage } = deps;
     server.registerTool('get_listing_photos', {
       description: 'Retrieve a listing’s referenced photos without saving image bytes.',
-      inputSchema: { listingId: z.string().min(1) },
+      inputSchema: { listingId: z.string().min(1), offset: z.number().int().min(0).default(0) },
       outputSchema: z.object({
         listingId: z.string(),
-        photos: z.array(z.object({ listingId: z.string(), reference: z.string(), mediaType: z.string(), bytes: z.array(z.number()).optional(), unavailableReason: z.string().optional() })),
+        photos: z.array(z.object({ listingId: z.string(), reference: z.string(), mediaType: z.string(), unavailableReason: z.string().optional() })),
+        assessment: z.record(z.string(), z.unknown()),
+        nextOffset: z.number().nullable(),
         uncertainty: z.array(z.string()),
       }),
-    }, async ({ listingId }) => {
+    }, async ({ listingId, offset }) => {
       try {
         const listing = storage.getListing(listingId);
         if (!listing) return { isError: true, content: [{ type: 'text' as const, text: `Listing ${listingId} was not found in local storage.` }] };
         const references = Array.isArray(listing.photos) ? listing.photos.filter((reference): reference is string => typeof reference === 'string') : [];
         const retrieved = await adapter.getListingPhotos(listingId, references);
-        const photos = retrieved.map(photo => ({
-          ...photo,
-          ...(photo.bytes ? { bytes: Array.from(photo.bytes) } : {}),
-        }));
+        const page = retrieved.slice(offset, offset + 3);
+        const photos = page.map(({ listingId: photoListingId, reference, mediaType, unavailableReason }) => ({ listingId: photoListingId, reference, mediaType, ...(unavailableReason ? { unavailableReason } : {}) }));
         const uncertainty = photos.flatMap(photo => photo.unavailableReason ? [`Photo ${photo.reference}: ${photo.unavailableReason}`] : []);
-        return { structuredContent: { listingId, photos, uncertainty }, content: [{ type: 'text' as const, text: `Retrieved ${photos.length} photo reference${photos.length === 1 ? '' : 's'} for listing ${listingId}; ${uncertainty.length} unavailable.` }] };
+        const imageBlocks = page.filter(photo => photo.bytes && /^image\/(?:png|jpeg|webp|gif)$/i.test(photo.mediaType) && photo.bytes.byteLength <= 12_000).map(photo => ({ type: 'image' as const, data: btoa(Array.from(photo.bytes!, byte => String.fromCharCode(byte)).join('')), mimeType: photo.mediaType }));
+        const assessment = analyzePhotos(retrieved);
+        const nextOffset = offset + page.length < retrieved.length ? offset + page.length : null;
+        return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${retrieved.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`}` }, ...imageBlocks] };
       } catch (error) { return toolError(error); }
     });
     server.registerTool('refresh_watched', {
@@ -184,11 +188,12 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             let kind: 'new_match' | 'price_change' | 'edited' | undefined;
             if (!priorSnapshot || latestChanges.get(id) === 'disappeared') kind = 'new_match';
             else {
-              const comparison = priorCard ?? priorSnapshot;
-              const cardChanged = !sameSnapshot(overlappingSnapshot(comparison, listing), overlappingSnapshot(listing, comparison));
-              if (cardChanged) kind = !sameSnapshot({ id, price: comparison.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
+              if (priorCard) {
+                const cardChanged = !sameSnapshot(overlappingSnapshot(priorCard, listing), overlappingSnapshot(listing, priorCard));
+                if (cardChanged) kind = !sameSnapshot({ id, price: priorCard.price }, { id, price: listing.price }) ? 'price_change' : 'edited';
+              }
             }
-            if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorSnapshot?.price ?? null, to: normalized.price ?? null, oldAskingPrice: priorSnapshot?.price ?? null, newAskingPrice: normalized.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
+            if (kind && storage.recordChange({ listingId: id, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: priorCard?.price ?? null, to: listing.price ?? null, oldAskingPrice: priorCard?.price ?? null, newAskingPrice: listing.price ?? null } : {} })) { changeCount++; latestChanges.set(id, kind); }
           }
           for (const [id] of prior) if (complete && !current.has(id) && latestChanges.get(id) !== 'disappeared' && storage.recordChange({ listingId: id, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) { changeCount++; latestChanges.set(id, 'disappeared'); }
           refreshedSearches++;
@@ -200,15 +205,16 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const observedAt = page.fetchedAt.toISOString();
           const listing: Listing = 'status' in parsed ? { id: listingId, status: 'not_available' } : { ...parsed, id: listingId, status: 'available' };
           const previous = storage.getListing(listingId);
+          const priorDetail = storage.listObservations(listingId).filter(observation => isDetailObservation(observation.sourceUrl)).at(-1)?.normalized as Listing | undefined;
           storage.upsertListing(listing, observedAt);
           storage.recordObservation({ listingId, observedAt, sourceUrl: url, raw: listing, normalized: listing });
           if (previous && listing.status === 'not_available') {
             if (storage.recordChange({ listingId, kind: 'disappeared', occurredAt: observedAt, data: { status: 'no longer observed' } })) changeCount++;
-          } else if (previous && !sameSnapshot(previous, listing)) {
-            const previousPrice = (previous.price as { amount?: unknown } | undefined)?.amount;
+          } else if (priorDetail && !sameSnapshot(priorDetail, listing)) {
+            const previousPrice = (priorDetail.price as { amount?: unknown } | undefined)?.amount;
             const currentPrice = (listing.price as { amount?: unknown } | undefined)?.amount;
             const kind = previousPrice !== currentPrice ? 'price_change' : 'edited';
-            if (storage.recordChange({ listingId, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: previousPrice ?? null, to: currentPrice ?? null, oldAskingPrice: previous.price ?? null, newAskingPrice: listing.price ?? null } : {} })) changeCount++;
+            if (storage.recordChange({ listingId, kind, occurredAt: observedAt, data: kind === 'price_change' ? { from: previousPrice ?? null, to: currentPrice ?? null, oldAskingPrice: priorDetail.price ?? null, newAskingPrice: listing.price ?? null } : {} })) changeCount++;
           }
           refreshedListings++;
         }

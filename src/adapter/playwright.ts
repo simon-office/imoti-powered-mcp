@@ -19,10 +19,22 @@ export function requestDelay(configured = MIN_REQUEST_DELAY_MS): number {
 export function isAllowedPhotoReference(reference: string): boolean {
   try {
     const url = new URL(reference);
-    return url.protocol === 'https:' && url.username === '' && url.password === '' && url.port === '' && /^imotstatic\d+\.focus\.bg$/i.test(url.hostname);
+    return url.protocol === 'https:' && url.username === '' && url.password === '' && url.port === '' && /^(?:imotstatic|cdn)\d+\.focus\.bg$/i.test(url.hostname);
   } catch {
     return false;
   }
+}
+
+export async function fetchPhotosWithLimit<T>(references: string[], fetchPhoto: (reference: string) => Promise<T>, limit = 3): Promise<T[]> {
+  const results = new Array<T>(references.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, references.length) }, async () => {
+    while (cursor < references.length) {
+      const index = cursor++;
+      results[index] = await fetchPhoto(references[index]!);
+    }
+  }));
+  return results;
 }
 
 export function assertPageCapacity(pagesFetched: number, maxPages = DEFAULT_MAX_PAGES): void {
@@ -74,7 +86,7 @@ export class PlaywrightAdapter implements SiteAdapter {
 
   async getListingPhotos(listingId: string, references: string[]): Promise<ListingPhoto[]> {
     const context = await this.getContext();
-    return Promise.all(references.map(async reference => {
+    return fetchPhotosWithLimit(references, async reference => {
       try {
         if (!isAllowedPhotoReference(reference)) {
           return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: 'Photo reference is not an allowed HTTPS image host.' };
@@ -85,7 +97,7 @@ export class PlaywrightAdapter implements SiteAdapter {
       } catch (error) {
         return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: error instanceof Error ? error.message : 'Image could not be retrieved.' };
       }
-    }));
+    });
   }
 
   async close(): Promise<void> {

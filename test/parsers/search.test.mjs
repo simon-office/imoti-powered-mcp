@@ -65,3 +65,8 @@ test('decodes windows-1251 result bytes', async () => {
   assert.equal(page.listings[0].title, 'Продава 2-СТАЕН');
   assert.equal(page.listings[0].location.raw, 'град София, Люлин-1');
 });
+
+test('redacts phone numbers from seller names and card free-text fields', () => {
+  const page = parseSearchResults('<div class="item" id="ida-fake"><a class="title" href="/obiava-fake">Продава апартамент 0888 123 456</a><div class="info">ул. Фалшива 0888 123 456</div><div class="seller"><div class="name">Агенция Пример 02/123-45-67</div></div></div>');
+  assert.doesNotMatch(JSON.stringify(page), /0888\s*123\s*456|02\/123-45-67/);
+});
