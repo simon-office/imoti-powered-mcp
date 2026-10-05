@@ -104,6 +104,36 @@ test('invalid cached GTFS is refreshed and a failed refresh preserves valid prov
   assert.equal(cached, 'bad-again');
 });
 
+test('cache max age defaults to seven days and expired stop data refreshes with stale fallback', async () => {
+  let cached = JSON.stringify([{ id: 'old', name: 'Old Stop', latitude: 42, longitude: 23, provenance: { name: 'old', sourceUrl: 'https://fixture.test', datasetDate: 'unknown', checkedAt: '2026-10-01T00:00:00.000Z', reuseTerms: 'synthetic' } }]);
+  let fetches = 0;
+  const cache = { read: async () => cached, write: async (_key, value) => { cached = value; } };
+  const adapter = new LocalSofiaDataAdapter({ cache, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchStops: async () => { fetches++; throw new Error('offline'); } });
+  assert.equal(LocalSofiaDataAdapter.DEFAULT_CACHE_MAX_AGE_MS, 7 * 24 * 60 * 60 * 1000);
+  const result = await adapter.getStops();
+  assert.equal(fetches, 1);
+  assert.equal(result[0].id, 'old');
+  assert.equal(result[0].provenance.checkedAt, '2026-10-01T00:00:00.000Z');
+});
+
+test('GTFS feed end date makes cache stale even within cache age', async () => {
+  let cached = JSON.stringify([{ id: 'old', name: 'Old Stop', latitude: 42, longitude: 23, provenance: { name: 'old', sourceUrl: 'https://fixture.test', datasetDate: 'unknown', feedEndDate: '2026-10-09', checkedAt: '2026-10-09T00:00:00.000Z', reuseTerms: 'synthetic' } }]);
+  let fetches = 0;
+  const adapter = new LocalSofiaDataAdapter({ cache: { read: async () => cached, write: async (_key, value) => { cached = value; } }, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchStops: async () => { fetches++; return { stopsText, feedInfoText: 'feed_end_date\n20261009' }; } });
+  const result = await adapter.getStops();
+  assert.equal(fetches, 1);
+  assert.equal(result[0].provenance.checkedAt, '2026-10-10T00:00:00.000Z');
+});
+
+test('municipal cache refresh failure returns valid prior datasets unchanged', async () => {
+  const provenance = { name: 'old', sourceUrl: 'https://fixture.test', datasetDate: 'unknown', checkedAt: '2026-10-01T00:00:00.000Z', reuseTerms: 'synthetic' };
+  const addresses = [{ settlement: 'Sofia', street: 'Fictional Road', region: 'A', latitude: 42, longitude: 23, provenance }];
+  const districts = [{ name: 'Imaginary District', latitude: 42, longitude: 23, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance }];
+  const cacheValues = new Map([['sofia-addresses.json', JSON.stringify(addresses)], ['sofia-districts.json', JSON.stringify(districts)]]);
+  const adapter = new LocalSofiaDataAdapter({ cache: { read: async key => cacheValues.get(key), write: async () => {} }, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchMunicipalData: async () => { throw new Error('offline'); } });
+  assert.deepEqual(await adapter.getMunicipalLocations(), { addresses, districts });
+});
+
 test('local adapter loads and caches both municipal location datasets with their distinct reuse terms', async () => {
   const cacheValues = new Map();
   const writes = [];
