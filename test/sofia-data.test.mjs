@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { FixtureSofiaDataAdapter, LocalSofiaDataAdapter, parseGtfsStops } from '../dist/adapter/sofia-data.js';
+import { createLocalServer } from '../dist/local-server.js';
 
 const stopsText = 'stop_id,stop_name,stop_lat,stop_lon\nfake-1,"Imaginary, Square",42.7,23.3\nfake-2,Made-up Station,42.71,23.31';
 
@@ -17,16 +18,28 @@ test('local adapter fetches once, caches stops and attaches source provenance', 
   let cached;
   let fetches = 0;
   const cache = { read: async () => cached, write: async (_key, value) => { cached = value; } };
-  const options = { cache, fetchStops: async () => { fetches++; return stopsText; }, now: () => new Date('2026-10-06T12:00:00.000Z') };
+  const options = { cache, fetchStops: async () => { fetches++; return { stopsText, feedInfoText: 'feed_start_date\n20261005' }; }, now: () => new Date('2026-10-06T12:00:00.000Z') };
   const first = new LocalSofiaDataAdapter(options);
   const result = await first.getStops();
   const second = await new LocalSofiaDataAdapter(options).getStops();
   assert.equal(fetches, 1);
   assert.deepEqual(second, result);
   assert.equal(result[0].provenance.sourceUrl, 'https://gtfs.sofiatraffic.bg/api/v1/static');
-  assert.match(result[0].provenance.datasetDate, /valid from 2026-10-05/);
+  assert.equal(result[0].provenance.datasetDate, '2026-10-05');
   assert.equal(result[0].provenance.checkedAt, '2026-10-06T12:00:00.000Z');
   assert.match(result[0].provenance.reuseTerms, /conflict/i);
+});
+
+test('local adapter derives dataset date from synthetic GTFS feed_info and marks absent dates unknown', async () => {
+  const cache = { read: async () => undefined, write: async () => {} };
+  const withFeedInfo = new LocalSofiaDataAdapter({ cache, fetchStops: async () => ({
+    stopsText,
+    feedInfoText: 'feed_publisher_name,feed_start_date\nSynthetic Publisher,20270412'
+  }) });
+  const withoutFeedInfo = new LocalSofiaDataAdapter({ cache, fetchStops: async () => stopsText });
+
+  assert.equal((await withFeedInfo.getStops())[0].provenance.datasetDate, '2027-04-12');
+  assert.equal((await withoutFeedInfo.getStops())[0].provenance.datasetDate, 'unknown');
 });
 
 test('invalid cached GTFS is refreshed and a failed refresh preserves valid provenance data', async () => {
@@ -42,10 +55,17 @@ test('invalid cached GTFS is refreshed and a failed refresh preserves valid prov
   assert.equal(cached, 'bad-again');
 });
 
-test('stdio entry point wires the local adapter while fixture adapter remains importable', async () => {
-  const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(main, /new LocalSofiaDataAdapter\(\)/);
-  assert.match(main, /sofiaData:/);
+test('local server construction passes the real local adapter to createServer', () => {
+  let dependencies;
+  const expectedServer = {};
+  const result = createLocalServer({
+    serverFactory: (deps) => { dependencies = deps; return expectedServer; },
+    adapter: {},
+    storage: {}
+  });
+
+  assert.equal(result, expectedServer);
+  assert.ok(dependencies.sofiaData instanceof LocalSofiaDataAdapter);
   assert.equal(typeof FixtureSofiaDataAdapter, 'function');
 });
 

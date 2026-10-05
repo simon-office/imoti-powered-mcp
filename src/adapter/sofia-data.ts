@@ -70,17 +70,16 @@ export interface SofiaLocalCache {
 export interface LocalSofiaDataAdapterOptions {
   cache?: SofiaLocalCache;
   dataDirectory?: string;
-  fetchStops?: () => Promise<string>;
+  fetchStops?: () => Promise<string | { stopsText: string; feedInfoText?: string }>;
   now?: () => Date;
 }
 
 const GTFS_URL = 'https://gtfs.sofiatraffic.bg/api/v1/static';
 const REUSE_TERMS = 'Unresolved conflict: the municipal mobility policy lists CC BY 4.0, while the GTFS catalog labels this dataset CC BY-SA (version unspecified). Confirm with the publisher; no license is inferred.';
-const DATASET_DATE = 'valid from 2026-10-05 (GTFS feed_start_date; not a publication date)';
 
 export class LocalSofiaDataAdapter implements SofiaDataAdapter {
   readonly #cache: SofiaLocalCache;
-  readonly #fetchStops: () => Promise<string>;
+  readonly #fetchStops: NonNullable<LocalSofiaDataAdapterOptions['fetchStops']>;
   readonly #now: () => Date;
 
   constructor(options: LocalSofiaDataAdapterOptions = {}) {
@@ -97,11 +96,14 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
         if (Array.isArray(parsed) && parsed.length && parsed.every(validStop)) return parsed;
       } catch { /* refresh invalid cache */ }
     }
-    const rows = parseGtfsStops(await this.#fetchStops());
+    const feed = await this.#fetchStops();
+    const stopsText = typeof feed === 'string' ? feed : feed.stopsText;
+    const datasetDate = typeof feed === 'string' ? 'unknown' : parseFeedStartDate(feed.feedInfoText);
+    const rows = parseGtfsStops(stopsText);
     const checkedAt = this.#now().toISOString();
     const stops: TransitStop[] = rows.map(row => ({ ...row, provenance: {
       name: 'Sofia Urban Mobility Center static GTFS', sourceUrl: GTFS_URL,
-      datasetDate: DATASET_DATE, checkedAt, reuseTerms: REUSE_TERMS
+      datasetDate, checkedAt, reuseTerms: REUSE_TERMS
     } }));
     await this.#cache.write('sofia-gtfs-stops.json', JSON.stringify(stops));
     return stops;
@@ -162,10 +164,23 @@ function fileCache(directory: string): SofiaLocalCache {
   };
 }
 
-async function fetchOfficialStops(): Promise<string> {
+function parseFeedStartDate(text?: string): string {
+  if (!text) return 'unknown';
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return 'unknown';
+  const headers = parseCsvLine(lines[0]);
+  const dateIndex = headers.indexOf('feed_start_date');
+  if (dateIndex < 0) return 'unknown';
+  const value = parseCsvLine(lines[1])[dateIndex] ?? '';
+  if (!/^\d{8}$/.test(value)) return 'unknown';
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+}
+
+async function fetchOfficialStops(): Promise<{ stopsText: string; feedInfoText?: string }> {
   const response = await fetch(GTFS_URL);
   if (!response.ok) throw new Error(`Sofia GTFS download failed with HTTP ${response.status}`);
   const archive = Buffer.from(await response.arrayBuffer());
+  const files = new Map<string, string>();
   let offset = 0;
   while (offset + 30 < archive.length && archive.readUInt32LE(offset) === 0x04034b50) {
     const method = archive.readUInt16LE(offset + 8);
@@ -175,12 +190,17 @@ async function fetchOfficialStops(): Promise<string> {
     const name = archive.toString('utf8', offset + 30, offset + 30 + nameLength);
     const start = offset + 30 + nameLength + extraLength;
     const data = archive.subarray(start, start + compressedSize);
-    if (name === 'stops.txt' || name.endsWith('/stops.txt')) {
-      if (method === 0) return new TextDecoder().decode(data);
-      if (method === 8) return new TextDecoder().decode(inflateRawSync(data));
-      throw new Error(`Unsupported GTFS ZIP compression method ${method}`);
+    if (name === 'stops.txt' || name.endsWith('/stops.txt') || name === 'feed_info.txt' || name.endsWith('/feed_info.txt')) {
+      let decoded: Uint8Array;
+      if (method === 0) decoded = data;
+      else if (method === 8) decoded = inflateRawSync(data);
+      else throw new Error(`Unsupported GTFS ZIP compression method ${method}`);
+      files.set(name.split('/').at(-1)!, new TextDecoder().decode(decoded));
+      if (files.has('stops.txt') && files.has('feed_info.txt')) break;
     }
     offset = start + compressedSize;
   }
-  throw new Error('Sofia GTFS archive does not contain stops.txt');
+  const stopsText = files.get('stops.txt');
+  if (!stopsText) throw new Error('Sofia GTFS archive does not contain stops.txt');
+  return { stopsText, feedInfoText: files.get('feed_info.txt') };
 }
