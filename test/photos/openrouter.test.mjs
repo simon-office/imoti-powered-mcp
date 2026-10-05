@@ -20,6 +20,20 @@ test('sends key only in authorization header and validates allowed-model finding
   assert.deepEqual(findings, [finding]);
 });
 
+test('includes coverage findings for unavailable photos alongside model findings', async () => {
+  const unavailablePhoto = { listingId: photo.listingId, reference: 'synthetic-photo-2', mediaType: 'image/jpeg', unavailableReason: 'bytes unavailable' };
+  const findings = await assessWithOpenRouter([photo, unavailablePhoto], {
+    apiKey: 'synthetic-key', model,
+    fetchImpl: async () => completion({ findings: [finding] }),
+  });
+  assert.deepEqual(findings, [finding, {
+    reference: unavailablePhoto.reference,
+    category: 'coverage',
+    observation: 'This image could not be visually assessed.',
+    uncertainty: 'Image bytes are unavailable; photo coverage is incomplete.',
+  }]);
+});
+
 test('rejects paid and unknown models before making a request', async () => {
   for (const denied of ['google/gemma-3-4b-it', 'unknown/model:free']) {
     let called = false;

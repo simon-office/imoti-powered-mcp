@@ -36,12 +36,15 @@ export async function assessWithOpenRouter(
 ): Promise<PhotoFinding[]> {
   if (!allowedModels.has(options.model) || !options.model.endsWith(':free')) throw new Error('OpenRouter model is not allowlisted as free.');
   const available = photos.filter(photo => photo.bytes?.byteLength && !photo.unavailableReason);
-  if (available.length === 0) return photos.map(photo => ({
-    reference: photo.reference,
-    category: 'coverage',
-    observation: 'This image could not be visually assessed.',
-    uncertainty: 'Image bytes are unavailable; photo coverage is incomplete.',
-  }));
+  const coverageFindings: PhotoFinding[] = photos
+    .filter(photo => !photo.bytes?.byteLength || photo.unavailableReason)
+    .map(photo => ({
+      reference: photo.reference,
+      category: 'coverage',
+      observation: 'This image could not be visually assessed.',
+      uncertainty: 'Image bytes are unavailable; photo coverage is incomplete.',
+    }));
+  if (available.length === 0) return coverageFindings;
   try {
     const response = await (options.fetchImpl ?? fetch)('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -60,7 +63,8 @@ export async function assessWithOpenRouter(
     if (!payload || typeof payload !== 'object' || !('choices' in payload) || !Array.isArray(payload.choices)) throw new Error('invalid provider response');
     const message = payload.choices[0]?.message;
     if (!message || typeof message !== 'object' || !('content' in message) || typeof message.content !== 'string') throw new Error('invalid provider response');
-    return parseFindings(JSON.parse(message.content) as unknown, new Set(available.map(photo => photo.reference)));
+    const findings = parseFindings(JSON.parse(message.content) as unknown, new Set(available.map(photo => photo.reference)));
+    return [...findings, ...coverageFindings];
   } catch {
     throw new PhotoAssessmentFallbackError();
   }
