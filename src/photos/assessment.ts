@@ -20,6 +20,12 @@ function variantUrl(reference: string): string | undefined {
   } catch { return undefined; }
 }
 
+function thumbnailUrl(bigUrl: string): string {
+  const url = new URL(bigUrl);
+  url.pathname = url.pathname.replace(/\/big\/([^/]+)$/, '/$1');
+  return url.href;
+}
+
 async function retrieveVariant(url: string): Promise<{ bytes: Uint8Array; mediaType: string }> {
   const response = await fetch(url, { redirect: 'error' });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -127,12 +133,19 @@ export async function assessListingPhotos(photos: ListingPhoto[], options: Photo
       const url = variantUrl(photo.reference);
       if (!url) reason = 'size exceeds 200,000 bytes and no eligible same-host big variant is available';
       else try {
-        const variant = await (options.retrieveVariant ?? retrieveVariant)(url);
-        bytes = variant.bytes;
-        mediaType = variant.mediaType;
-        if (!bytes.byteLength) reason = 'variant retrieval returned unavailable bytes';
-        else if (bytes.byteLength > 200_000) reason = `variant size ${bytes.byteLength} bytes exceeds 200,000 bytes`;
-        else if (!/^image\/(png|jpeg|webp|gif)$/i.test(mediaType)) reason = `unsupported media type ${mediaType}`;
+        const big = await (options.retrieveVariant ?? retrieveVariant)(url);
+        bytes = big.bytes;
+        mediaType = big.mediaType;
+        if (!bytes.byteLength) reason = 'big variant retrieval returned unavailable bytes';
+        else if (bytes.byteLength > 200_000) {
+          const thumbnail = await (options.retrieveVariant ?? retrieveVariant)(thumbnailUrl(url));
+          bytes = thumbnail.bytes;
+          mediaType = thumbnail.mediaType;
+          if (!bytes.byteLength) reason = 'thumbnail retrieval returned unavailable bytes';
+          else if (bytes.byteLength > 200_000) reason = `thumbnail size ${bytes.byteLength} bytes exceeds 200,000 bytes`;
+          else if (!/^image\/(png|jpeg|webp|gif)$/i.test(mediaType)) reason = `unsupported thumbnail media type ${mediaType}`;
+          else uncertainty.push(`Photo ${photo.reference} attached to host assessment as a 280px low-resolution thumbnail.`);
+        } else if (!/^image\/(png|jpeg|webp|gif)$/i.test(mediaType)) reason = `unsupported media type ${mediaType}`;
       } catch { reason = 'same-host variant retrieval failed'; }
     } else if (!reason && !/^image\/(png|jpeg|webp|gif)$/i.test(mediaType)) reason = `unsupported media type ${mediaType}`;
     if (reason) uncertainty.push(`Photo ${photo.reference} omitted from host image content: ${reason}; visual coverage is incomplete.`);
