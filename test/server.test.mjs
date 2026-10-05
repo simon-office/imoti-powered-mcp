@@ -190,7 +190,7 @@ test('compare_listings returns stored evidence and bounded asking-price sample m
       assert.ok(listings[0].uncertainty.length);
       assert.equal(listings[1].photoAssessment, null);
       assert.ok(listings[1].explanations.photoAssessment);
-      assert.deepEqual(askingPricePositioning, { basis: 'observed asking prices only; not completed sales or a market-wide valuation', sampleSize: 2, currency: 'EUR', period: { from: '2026-02-01T00:00:00.000Z', to: '2026-02-10T00:00:00.000Z' }, minimum: 200000, median: 250000, maximum: 300000 });
+      assert.deepEqual(askingPricePositioning, { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: 2, currency: 'EUR', period: { from: '2026-02-01T00:00:00.000Z', to: '2026-02-10T00:00:00.000Z' }, minimum: 200000, median: 250000, maximum: 300000 });
       assert.match(askingPricePositioning.basis, /not completed sales/);
       assert.equal(JSON.stringify(result).toLowerCase().includes('hidden defect'), false);
     });
@@ -226,9 +226,12 @@ test('compare_listings explains absent evidence and does not mix currencies in p
       assert.deepEqual(eur.price, { amount: 100000, currency: 'EUR' });
       assert.equal(missing.price, null);
       assert.ok(missing.explanations.price);
-      assert.equal(result.structuredContent.askingPricePositioning.sampleSize, 0);
+      assert.equal(result.structuredContent.askingPricePositioning.sampleSize, 2);
       assert.equal(result.structuredContent.askingPricePositioning.currency, null);
       assert.equal(result.structuredContent.askingPricePositioning.period.from, '2026-04-01T00:00:00.000Z');
+      assert.equal(result.structuredContent.askingPricePositioning.period.to, '2026-04-02T00:00:00.000Z');
+      assert.equal(result.structuredContent.askingPricePositioning.minimum, null);
+      assert.match(result.structuredContent.askingPricePositioning.basis, /period covers supplied observations with available timestamps/);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

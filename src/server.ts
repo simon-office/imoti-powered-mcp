@@ -146,13 +146,13 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const amounts = listings.flatMap(item => item.price ? [item.price as {amount:number;currency:string}] : []);
         const currency = amounts.length && amounts.every(item => item.currency === amounts[0].currency) ? amounts[0].currency : null;
         const dates = listings.flatMap(item => item.price && item.observedAt ? [item.observedAt] : []).sort();
-        let positioning: unknown = { basis: 'observed asking prices only; not completed sales or a market-wide valuation', sampleSize: currency ? amounts.length : 0, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: null, median: null, maximum: null };
+        let positioning: unknown = { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: amounts.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: null, median: null, maximum: null };
         if (currency && amounts.length) {
           const sorted = amounts.map(item => item.amount).sort((a,b) => a-b);
           const middle = Math.floor(sorted.length / 2);
-          positioning = { basis: 'observed asking prices only; not completed sales or a market-wide valuation', sampleSize: sorted.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: sorted[0], median: sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2, maximum: sorted.at(-1) };
+          positioning = { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: amounts.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: sorted[0], median: sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2, maximum: sorted.at(-1) };
         }
-        return { structuredContent: { listings, askingPricePositioning: positioning }, content: [{ type: 'text' as const, text: `Compared ${listings.length} stored listings. Asking-price positioning uses ${currency ? amounts.length : 0} supplied observation(s) only; it is not completed sales or market-wide valuation.` }] };
+        return { structuredContent: { listings, askingPricePositioning: positioning }, content: [{ type: 'text' as const, text: `Compared ${listings.length} stored listings. Asking-price positioning covers ${amounts.length} valid supplied price observation(s); aggregate statistics are available only for one currency. The period covers supplied observations with available timestamps; these are not completed sales or market-wide valuation.` }] };
       } catch (error) { return toolError(error); }
     });
   }
