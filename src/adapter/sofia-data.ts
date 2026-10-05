@@ -74,6 +74,8 @@ export interface SofiaLocalCache {
 }
 
 export interface LocalSofiaDataAdapterOptions {
+  /** Maximum cache age in milliseconds before a dataset is refreshed. Defaults to seven days. */
+  cacheMaxAgeMs?: number;
   cache?: SofiaLocalCache;
   dataDirectory?: string;
   fetchStops?: () => Promise<string | { stopsText: string; feedInfoText?: string } | ArrayBuffer | Uint8Array>;
@@ -88,11 +90,13 @@ const DISTRICTS_URL = 'https://api.sofiaplan.bg/datasets/297';
 const REUSE_TERMS = 'Unresolved conflict: the municipal mobility policy lists CC BY 4.0, while the GTFS catalog labels this dataset CC BY-SA (version unspecified). Confirm with the publisher; no license is inferred.';
 
 export class LocalSofiaDataAdapter implements SofiaDataAdapter {
+  static readonly DEFAULT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
   readonly #cache: SofiaLocalCache;
   readonly #fetchStops: NonNullable<LocalSofiaDataAdapterOptions['fetchStops']>;
   readonly #now: () => Date;
   readonly #fetchMunicipalData: NonNullable<LocalSofiaDataAdapterOptions['fetchMunicipalData']>;
   readonly #unzipAddresses: NonNullable<LocalSofiaDataAdapterOptions['unzipAddresses']>;
+  readonly #cacheMaxAgeMs: number;
 
   constructor(options: LocalSofiaDataAdapterOptions = {}) {
     this.#cache = options.cache ?? fileCache(options.dataDirectory ?? process.env.IMOTI_DATA_DIR ?? join(homedir(), '.imoti-powered-mcp'));
@@ -100,6 +104,7 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
     this.#now = options.now ?? (() => new Date());
     this.#fetchMunicipalData = options.fetchMunicipalData ?? fetchMunicipalData;
     this.#unzipAddresses = options.unzipAddresses ?? unzipFirstCsv;
+    this.#cacheMaxAgeMs = options.cacheMaxAgeMs ?? LocalSofiaDataAdapter.DEFAULT_CACHE_MAX_AGE_MS;
   }
 
   async getStops(): Promise<TransitStop[]> {
@@ -107,9 +112,20 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
     if (cached) {
       try {
         const parsed = JSON.parse(cached) as TransitStop[];
-        if (Array.isArray(parsed) && parsed.length && parsed.every(validStop)) return parsed;
+        if (Array.isArray(parsed) && parsed.length && parsed.every(validStop)) {
+          const endDate = parseDate((parsed[0].provenance as TransitStop['provenance'] & { feedEndDate?: string }).feedEndDate);
+          const now = this.#now();
+          const stale = isCacheOld(parsed[0].provenance.checkedAt, now, this.#cacheMaxAgeMs)
+            || (endDate !== undefined && endDate < now.toISOString().slice(0, 10));
+          if (!stale) return parsed;
+          try { return await this.#refreshStops(); } catch { return parsed; }
+        }
       } catch { /* refresh invalid cache */ }
     }
+    return this.#refreshStops();
+  }
+
+  async #refreshStops(): Promise<TransitStop[]> {
     const feed = await this.#fetchStops();
     const zipFiles = feed instanceof ArrayBuffer || feed instanceof Uint8Array
       ? readZipEntries(feed)
@@ -121,11 +137,12 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
     const feedInfoEntry = zipFiles ? [...zipFiles].find(([name]) => name === 'feed_info.txt' || name.endsWith('/feed_info.txt'))?.[1] : undefined;
     const feedInfo = zipFiles ? (feedInfoEntry ? new TextDecoder().decode(feedInfoEntry) : undefined) : typeof feed === 'string' || feed instanceof ArrayBuffer || feed instanceof Uint8Array ? undefined : feed.feedInfoText;
     const datasetDate = parseFeedStartDate(feedInfo);
+    const feedEndDate = parseFeedEndDate(feedInfo);
     const rows = parseGtfsStops(stopsText);
     const checkedAt = this.#now().toISOString();
     const stops: TransitStop[] = rows.map(row => ({ ...row, provenance: {
       name: 'Sofia Urban Mobility Center static GTFS', sourceUrl: GTFS_URL,
-      datasetDate, checkedAt, reuseTerms: REUSE_TERMS
+      datasetDate, checkedAt, reuseTerms: REUSE_TERMS, ...(feedEndDate ? { feedEndDate } : {})
     } }));
     await this.#cache.write('sofia-gtfs-stops.json', JSON.stringify(stops));
     return stops;
@@ -141,17 +158,33 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
       this.#cache.read('sofia-districts.json').catch(() => undefined)
     ]);
     const cached = [parseCachedLocations(addressCache, 'addresses'), parseCachedLocations(districtCache, 'districts')];
-    if (cached[0] && cached[1]) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
-    const fetched = await this.#fetchMunicipalData();
-    const checkedAt = this.#now().toISOString();
-    const addresses = (cached[0] as MunicipalLocationDatasets['addresses'] | undefined) ?? parseAddressCsv(await this.#unzipAddresses(fetched.addressesZip), {
-      name: 'Адреси на територията на Столична община', sourceUrl: ADDRESS_URL, datasetDate: '2026-09-15', checkedAt, reuseTerms: 'CC-BY'
-    });
-    const districts = (cached[1] as MunicipalLocationDatasets['districts'] | undefined) ?? parseDistrictGeoJson(fetched.districtsText, {
-      name: 'Квартали на Столична община', sourceUrl: DISTRICTS_URL, datasetDate: 'unknown', checkedAt, reuseTerms: 'Не са зададени лицензни права'
-    });
-    if (!cached[0]) await this.#cache.write('sofia-addresses.json', JSON.stringify(addresses));
-    if (!cached[1]) await this.#cache.write('sofia-districts.json', JSON.stringify(districts));
+    const completeCache = !!cached[0] && !!cached[1];
+    const stale = cached.some(dataset => dataset && isCacheOld(dataset[0].provenance.checkedAt, this.#now(), this.#cacheMaxAgeMs));
+    if (completeCache && !stale) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
+    let fetched: Awaited<ReturnType<typeof fetchMunicipalData>>;
+    try { fetched = await this.#fetchMunicipalData(); }
+    catch (error) { if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] }; throw error; }
+    let addresses: MunicipalLocationDatasets['addresses'];
+    let districts: MunicipalLocationDatasets['districts'];
+    try {
+      const checkedAt = this.#now().toISOString();
+      addresses = (!stale ? cached[0] as MunicipalLocationDatasets['addresses'] | undefined : undefined) ?? parseAddressCsv(await this.#unzipAddresses(fetched.addressesZip), {
+        name: 'Адреси на територията на Столична община', sourceUrl: ADDRESS_URL, datasetDate: '2026-09-15', checkedAt, reuseTerms: 'CC-BY'
+      });
+      districts = (!stale ? cached[1] as MunicipalLocationDatasets['districts'] | undefined : undefined) ?? parseDistrictGeoJson(fetched.districtsText, {
+        name: 'Квартали на Столична община', sourceUrl: DISTRICTS_URL, datasetDate: 'unknown', checkedAt, reuseTerms: 'Не са зададени лицензни права'
+      });
+    } catch (error) {
+      if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
+      throw error;
+    }
+    try {
+      if (!cached[0] || stale) await this.#cache.write('sofia-addresses.json', JSON.stringify(addresses));
+      if (!cached[1] || stale) await this.#cache.write('sofia-districts.json', JSON.stringify(districts));
+    } catch (error) {
+      if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
+      throw error;
+    }
     return { addresses, districts };
   }
 }
@@ -169,6 +202,18 @@ function parseCachedLocations(text: string | undefined, key: 'addresses' | 'dist
 
 function validProvenance(value: unknown): boolean {
   return !!value && typeof value === 'object' && ['name', 'sourceUrl', 'datasetDate', 'checkedAt', 'reuseTerms'].every(key => typeof (value as Record<string, unknown>)[key] === 'string');
+}
+
+function isCacheOld(checkedAt: string, now: Date, maxAgeMs: number): boolean {
+  const timestamp = Date.parse(checkedAt);
+  return !Number.isFinite(timestamp) || now.getTime() - timestamp > maxAgeMs;
+}
+
+function parseDate(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !/^(?:\d{8}|\d{4}-\d{2}-\d{2})$/.test(value)) return undefined;
+  const formatted = value.includes('-') ? value : `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  const date = new Date(`${formatted}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== formatted ? undefined : formatted;
 }
 
 function validGeometry(value: unknown): boolean {
@@ -338,8 +383,16 @@ function parseFeedStartDate(text?: string): string {
   const dateIndex = headers.indexOf('feed_start_date');
   if (dateIndex < 0) return 'unknown';
   const value = parseCsvLine(lines[1])[dateIndex] ?? '';
-  if (!/^\d{8}$/.test(value)) return 'unknown';
-  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  return parseDate(value) ?? 'unknown';
+}
+
+function parseFeedEndDate(text?: string): string | undefined {
+  if (!text) return undefined;
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return undefined;
+  const headers = parseCsvLine(lines[0]);
+  const dateIndex = headers.indexOf('feed_end_date');
+  return dateIndex < 0 ? undefined : parseDate(parseCsvLine(lines[1])[dateIndex]);
 }
 
 async function fetchOfficialStops(): Promise<{ stopsText: string; feedInfoText?: string }> {
