@@ -37,7 +37,7 @@ function parseFindings(value: unknown, references: Set<string>): PhotoFinding[] 
       || typeof category !== 'string' || !categories.has(category as PhotoFindingCategory)
       || typeof observation !== 'string' || !observation.trim()
       || typeof uncertainty !== 'string' || !uncertainty.trim()
-      || hiddenDefectClaim.test(observation)) {
+      || hiddenDefectClaim.test(observation) || hiddenDefectClaim.test(uncertainty)) {
       throw new Error('invalid finding');
     }
     return {
@@ -74,7 +74,7 @@ export async function assessWithOllama(
         model: options.model,
         stream: false,
         format: 'json',
-        prompt: 'Assess only what is visibly shown in the provided property photos. Return JSON with a findings array; each finding has reference, category (visible_room, finish, apparent_renovation, render, or coverage), observation, and uncertainty. Describe visible rooms, finishes, apparent renovation, possible render appearance, or photo coverage only. Never infer or claim hidden defects, damage, structural condition, or unseen details. Include uncertainty and use the exact supplied image reference.',
+        prompt: `Assess only what is visibly shown in the provided property photos. Images are supplied in this exact order; each finding must describe only its associated image and use that image's exact reference:\n${available.map((photo, index) => `Image ${index + 1}: ${photo.reference}`).join('\n')}\nReturn JSON with a findings array; each finding has reference, category (visible_room, finish, apparent_renovation, render, or coverage), observation, and uncertainty. Describe visible rooms, finishes, apparent renovation, possible render appearance, or photo coverage only. Never infer or claim hidden defects, damage, structural condition, or unseen details in either observation or uncertainty. Include uncertainty and use the exact supplied image reference.`,
         images: available.map(photo => toBase64(photo.bytes!)),
       }),
     });

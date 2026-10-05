@@ -54,6 +54,7 @@ test('rejects malformed, out-of-scope, and hidden-defect findings with a fallbac
     '{bad json',
     JSON.stringify({ findings: [{ ...result.findings[0], category: 'structural_defect' }] }),
     JSON.stringify({ findings: [{ ...result.findings[0], observation: 'Hidden water damage is present.' }] }),
+    JSON.stringify({ findings: [{ ...result.findings[0], uncertainty: 'Concealed structural damage may be present.' }] }),
     JSON.stringify({ findings: [{ reference: photo.reference, category: 'finish', observation: 'Tile floor.' }] }),
   ]) {
     await assert.rejects(
@@ -61,6 +62,33 @@ test('rejects malformed, out-of-scope, and hidden-defect findings with a fallbac
       error => error.name === 'PhotoAssessmentFallbackError' && !error.message.includes('water damage'),
     );
   }
+});
+
+test('maps multiple image positions to stable references and accepts findings only for supplied references', async () => {
+  const second = { ...photo, reference: 'synthetic-photo-2', bytes: generatedPng() };
+  const expected = [
+    { ...result.findings[0], reference: photo.reference },
+    { ...result.findings[0], reference: second.reference, observation: 'A kitchen counter is visible.' },
+  ];
+  let request;
+  const findings = await assessWithOllama([photo, second], {
+    ...options,
+    fetchImpl: async (_url, init) => {
+      request = JSON.parse(init.body);
+      return Response.json({ response: JSON.stringify({ findings: expected }) });
+    },
+  });
+
+  assert.deepEqual(request.images, [photo, second].map(item => Buffer.from(item.bytes).toString('base64')));
+  assert.match(request.prompt, /image 1.*synthetic-photo-1.*image 2.*synthetic-photo-2/is);
+  assert.deepEqual(findings, expected);
+  await assert.rejects(
+    assessWithOllama([photo, second], {
+      ...options,
+      fetchImpl: async () => Response.json({ response: JSON.stringify({ findings: [{ ...expected[0], reference: 'synthetic-photo-3' }] }) }),
+    }),
+    error => error.name === 'PhotoAssessmentFallbackError',
+  );
 });
 
 test('sanitizes provider failures and handles photos without bytes without requesting Ollama', async () => {
