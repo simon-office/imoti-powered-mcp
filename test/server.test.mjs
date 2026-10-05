@@ -90,6 +90,42 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('get_listing_photos returns ordered image bytes and does not persist them', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-'));
+  const databasePath = join(directory, 'test.db');
+  const storage = openStorage(databasePath);
+  const listingId = 'fake-photo-listing';
+  const references = ['https://images.fake.test/second.jpg', 'https://images.fake.test/first.png'];
+  storage.upsertListing({ id: listingId, photos: references });
+  const adapter = new FixtureAdapter({}, { photos: { [references[1]]: new Error('Generated fixture image unavailable.') } });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId } });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.equal(result.structuredContent.listingId, listingId);
+      assert.deepEqual(result.structuredContent.photos.map(photo => photo.reference), references);
+      assert.ok(result.structuredContent.photos[0].bytes.length > 0);
+      assert.equal(result.structuredContent.photos[1].unavailableReason, 'Generated fixture image unavailable.');
+      assert.ok(result.structuredContent.photos.every(photo => photo.mediaType.startsWith('image/')));
+      assert.deepEqual(result.structuredContent.uncertainty, [`Photo ${references[1]}: Generated fixture image unavailable.`]);
+    });
+    assert.deepEqual(storage.getListing(listingId).photos, references, 'stored listing retains only the references');
+    assert.equal(Object.hasOwn(storage.getListing(listingId), 'bytes'), false);
+  } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
+});
+
+test('get_listing_photos reports unavailable listing as an explicit tool error', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-missing-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  try {
+    await withClient(createServer({ adapter: new FixtureAdapter({}), storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'missing' } });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /not found/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('memory tools persist notes, independent saved searches, and listing watches', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));

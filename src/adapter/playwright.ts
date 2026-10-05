@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'playwright-core';
-import { ProtectiveScreenError, type SiteAdapter, type SitePage } from './types.js';
+import { ProtectiveScreenError, type ListingPhoto, type SiteAdapter, type SitePage } from './types.js';
 
 export const DEFAULT_MAX_PAGES = 20;
 export const MIN_REQUEST_DELAY_MS = 2000;
@@ -61,6 +61,19 @@ export class PlaywrightAdapter implements SiteAdapter {
     } finally {
       await page.close();
     }
+  }
+
+  async getListingPhotos(listingId: string, references: string[]): Promise<ListingPhoto[]> {
+    const context = await this.getContext();
+    return Promise.all(references.map(async reference => {
+      try {
+        const response = await context.request.get(reference);
+        if (!response.ok()) return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', unavailableReason: `Image request returned HTTP ${response.status()}.` };
+        return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', bytes: await response.body() };
+      } catch (error) {
+        return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: error instanceof Error ? error.message : 'Image could not be retrieved.' };
+      }
+    }));
   }
 
   async close(): Promise<void> {

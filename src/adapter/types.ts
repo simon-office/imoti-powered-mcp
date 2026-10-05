@@ -5,8 +5,17 @@ export interface SitePage {
   fetchedAt: Date;
 }
 
+export interface ListingPhoto {
+  listingId: string;
+  reference: string;
+  mediaType: string;
+  bytes?: Uint8Array;
+  unavailableReason?: string;
+}
+
 export interface SiteAdapter {
   fetchPage(url: string): Promise<SitePage>;
+  getListingPhotos(listingId: string, references: string[]): Promise<ListingPhoto[]>;
   close(): Promise<void>;
 }
 

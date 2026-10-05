@@ -107,6 +107,28 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
 
   if (deps.adapter && deps.storage) {
     const { adapter, storage } = deps;
+    server.registerTool('get_listing_photos', {
+      description: 'Retrieve a listing’s referenced photos without saving image bytes.',
+      inputSchema: { listingId: z.string().min(1) },
+      outputSchema: z.object({
+        listingId: z.string(),
+        photos: z.array(z.object({ listingId: z.string(), reference: z.string(), mediaType: z.string(), bytes: z.array(z.number()).optional(), unavailableReason: z.string().optional() })),
+        uncertainty: z.array(z.string()),
+      }),
+    }, async ({ listingId }) => {
+      try {
+        const listing = storage.getListing(listingId);
+        if (!listing) return { isError: true, content: [{ type: 'text' as const, text: `Listing ${listingId} was not found in local storage.` }] };
+        const references = Array.isArray(listing.photos) ? listing.photos.filter((reference): reference is string => typeof reference === 'string') : [];
+        const retrieved = await adapter.getListingPhotos(listingId, references);
+        const photos = retrieved.map(photo => ({
+          ...photo,
+          ...(photo.bytes ? { bytes: Array.from(photo.bytes) } : {}),
+        }));
+        const uncertainty = photos.flatMap(photo => photo.unavailableReason ? [`Photo ${photo.reference}: ${photo.unavailableReason}`] : []);
+        return { structuredContent: { listingId, photos, uncertainty }, content: [{ type: 'text' as const, text: `Retrieved ${photos.length} photo reference${photos.length === 1 ? '' : 's'} for listing ${listingId}; ${uncertainty.length} unavailable.` }] };
+      } catch (error) { return toolError(error); }
+    });
     server.registerTool('refresh_watched', {
       description: 'Refresh saved searches and record observed listing changes.',
       inputSchema: {},
