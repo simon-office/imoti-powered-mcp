@@ -2,7 +2,7 @@
 
 A conversational assistant that searches imot.bg, evaluates properties and remembers what matters to the user. Describe the desired home in plain language; the assistant chooses filters, finds listings, reviews their photos and location, and explains its shortlist.
 
-**Status: stage 3 photo/location assessment, in development; owner live check pending.**
+**Status: stage 4 prepared; Simon's owner live check and release decision pending.**
 
 See [product limitations](docs/limitations.md) for coverage and uncertainty boundaries, and [site terms and image-use permissions](docs/site-permissions.md) for the dated source review and decisions required before distribution.
 
@@ -101,7 +101,9 @@ npx @modelcontextprotocol/inspector node dist/main.js
 ## How changes land
 
 Every change arrives as a pull request. It is reviewed and tested, and CI must pass before it is merged into `main`.
-Releases are made by the repository owner.
+Simon owns the remaining release steps: run the owner live check and `claude plugin validate .` on his machine, resolve
+the site-access and image-use permission decisions, then choose the release version, tag it, and publish the GitHub
+release. See [`docs/live-check.md`](docs/live-check.md) for the reproducible checks and report template.
 
 ## License
 
