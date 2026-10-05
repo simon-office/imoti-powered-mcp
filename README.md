@@ -16,7 +16,7 @@ continues unattended past it. Replace `/path/to/imoti-powered-mcp` with your che
 
 ### macOS (launchd)
 
-Save this as `~/Library/LaunchAgents/local.imoti-powered-mcp.refresh.plist`, replacing the checkout path. This runs at
+Save this as `local.imoti-powered-mcp.refresh.plist` in the repository root, replacing the checkout path. This runs at
 minute 0 and 30 of each hour (at least 30 minutes apart):
 
 ```xml

@@ -58,6 +58,7 @@ test('README documents safe launchd and cron refresh schedules', async () => {
   const readme = await read('README.md');
   assert.match(readme, /ProgramArguments[\s\S]*?npm[\s\S]*?run[\s\S]*?refresh[\s\S]*?--/);
   assert.match(readme, /StartCalendarInterval[\s\S]*?Minute<\/key><integer>0<\/integer>[\s\S]*?Minute<\/key><integer>30<\/integer>/);
+  assert.match(readme, /Save this as `local\.imoti-powered-mcp\.refresh\.plist` in the repository[\s\S]*?cp \/path\/to\/imoti-powered-mcp\/local\.imoti-powered-mcp\.refresh\.plist/);
   assert.match(readme, /launchctl load[\s\S]*?\.plist/);
   assert.match(readme, /15,45 \* \* \* \*[\s\S]*?cd \/path\/to\/imoti-powered-mcp[\s\S]*?npm run refresh --[\s\S]*?>> "\$HOME\/[^\n]*\.log"/);
   assert.match(readme, /one-shot/i);
