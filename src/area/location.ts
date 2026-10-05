@@ -37,7 +37,7 @@ export function resolveMunicipalLocation(listing: Listing, datasets: MunicipalLo
     if (matches.length === 1) return { ...base, coordinates: { latitude: matches[0].latitude, longitude: matches[0].longitude }, precision: 'neighbourhood', source: matches[0].provenance.name, provenance: matches[0].provenance,
       uncertainty: ['Coordinates are the centroid of the municipal neighbourhood polygon; they do not identify the property building.'] };
   }
-  return { ...base, coordinates: undefined, precision: 'unknown', source: 'unresolved', uncertainty: ['No unambiguous match was found in the municipal address or neighbourhood datasets.'] };
+  return { ...base, coordinates: undefined, source: 'unresolved', uncertainty: [...base.uncertainty, 'No unambiguous match was found in the municipal address or neighbourhood datasets.'] };
 }
 
 function normalize(value: string): string { return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('bg-BG'); }

@@ -61,7 +61,24 @@ test('resolves streets and neighbourhoods from synthetic municipal datasets with
   assert.equal(district.source, districtProvenance.name);
   const unresolved = resolveMunicipalLocation({ id: 'ambiguous', location: { city: 'Sofia', street: 'ул. Непозната' }, seller: { location: 'ул. Измислена' } }, datasets);
   assert.equal(unresolved.coordinates, undefined);
-  assert.equal(unresolved.precision, 'unknown');
+  assert.equal(unresolved.precision, 'street');
+  assert.equal(unresolved.source, 'unresolved');
+  assert.ok(unresolved.uncertainty.some(item => /Street-level location/.test(item)));
+  assert.ok(unresolved.uncertainty.some(item => /municipal address or neighbourhood datasets/.test(item)));
+});
+
+test('does not resolve duplicate eligible neighbourhood matches', () => {
+  const provenance = { name: 'Synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const result = resolveMunicipalLocation({ id: 'duplicate-district', location: { city: 'Sofia', district: 'Пример' } }, {
+    addresses: [],
+    districts: [
+      { name: 'КВ. ПРИМЕР', latitude: 42.7, longitude: 23.3, provenance },
+      { name: 'ЖК. ПРИМЕР', latitude: 42.71, longitude: 23.31, provenance },
+    ],
+  });
+  assert.equal(result.coordinates, undefined);
+  assert.equal(result.precision, 'neighbourhood');
+  assert.equal(result.source, 'unresolved');
 });
 
 test('area_context uses straight-line stop distances when routes are absent', async () => {
