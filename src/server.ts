@@ -199,7 +199,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const key = `${stop.name.normalize('NFKC').trim().toLocaleLowerCase()}|${stop.latitude}|${stop.longitude}`;
           const prior = groups.get(key);
           const { provenance: _provenance, routingProvenance: _routingProvenance, ...conciseStop } = stop;
-          if (prior) prior.sourceIds.push(stop.id); else groups.set(key, { ...conciseStop, sourceIds: [stop.id] });
+          if (prior) { if (prior.sourceIds.length < 5) prior.sourceIds.push(stop.id); } else groups.set(key, { ...conciseStop, sourceIds: [stop.id] });
           return groups;
         }, new Map());
         const sortedStops = [...groupedStops.values()].sort((a, b) => a.distanceMeters - b.distanceMeters);
@@ -212,9 +212,9 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         if (!stopsAvailable && !straightStops.length) uncertainty.push('Nearby stops and schedules are unavailable because location coordinates or stops are not established.');
         else if (!stopsAvailable) uncertainty.push('Nearby stop distances are straight-line estimates and do not represent walking routes.');
         const schedulesAvailable = settled[1]?.status !== 'rejected' && stopsAvailable;
-        const datasets = [stops, schedules, features, routes].map((rows, i) => settled[i]?.status === 'rejected' ? [] : uniqueProvenance(rows.map(item => item.provenance)));
+        const datasets = [stops, schedules, features, routes].map((rows, i) => settled[i]?.status === 'rejected' ? [] : uniqueProvenance(rows.map(item => item.provenance)).slice(0, 10));
         const result = { listingId, location, nearbyStops, schedules: schedulesAvailable ? { status: 'available', items: relevantSchedules } : { status: 'unavailable', reason: settled[1]?.status === 'rejected' ? reason(1, '') : 'Schedules unavailable because nearby stops cannot be established.', uncertainty: true, items: [] }, municipalFeatures, sourceMetadata: { stops: datasets[0], schedules: datasets[1], municipalFeatures: datasets[2], routing: datasets[3] }, uncertainty };
-        return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${nearbyStops.status === 'available' ? `${nearbyStops.totalWithinRadius} nearby stops, nearest straight-line distance ${Math.round(nearbyStops.nearestDistanceMeters)} m` : 'nearby stops unavailable'}; ${schedulesAvailable ? 'schedules available' : 'schedules unavailable'}; ${municipalFeatures.status === 'available' ? 'municipal features available' : 'municipal features unavailable'}.` }] };
+        return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${nearbyStops.status === 'available' ? `${nearbyStops.totalWithinRadius} nearby stops, nearest ${nearbyStops.distanceType === 'pedestrian-route' ? 'pedestrian-route' : 'straight-line'} distance ${Math.round(nearbyStops.nearestDistanceMeters)} m` : 'nearby stops unavailable'}; ${schedulesAvailable ? 'schedules available' : 'schedules unavailable'}; ${municipalFeatures.status === 'available' ? 'municipal features available' : 'municipal features unavailable'}.` }] };
       } catch (error) { return toolError(error); }
     });
   }

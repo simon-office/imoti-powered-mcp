@@ -185,6 +185,7 @@ test('area_context returns coordinate-backed routed stops, schedules, and featur
     assert.deepEqual(context.nearbyStops.items.map(item => [item.id, item.distanceMeters]), [['near-stop', 350]]);
     assert.deepEqual(context.schedules.items.map(item => item.stopId), ['near-stop']);
     assert.deepEqual(context.municipalFeatures.items.map(item => [item.id, item.distanceMeters]), [['near-park', 420]]);
+    assert.match(result.content[0].text, /pedestrian-route distance/);
     assert.equal(context.sourceMetadata.stops[0].datasetDate, 'synthetic-2026-03-04');
     assert.equal(context.sourceMetadata.routing[0].sourceUrl, 'https://fixture.test/area');
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
@@ -272,4 +273,24 @@ test('area_context preserves results when each individual Sofia source rejects',
     } finally { await client.close(); await server.close(); }
   }
   storage.close(); await rm(directory, { recursive: true, force: true });
+});
+
+test('area_context bounds IDs and provenance for 5000 duplicate stops', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-duplicate-limit-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'duplicate-property', location: { city: 'Sofia', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const stops = Array.from({ length: 5000 }, (_, i) => ({ id: `synthetic-stop-source-${i}-${'x'.repeat(80)}`, name: 'Imaginary Duplicate Stop', latitude: 42.701, longitude: 23.3, provenance: { name: `Synthetic source ${i}`, sourceUrl: `https://fixture.test/source/${i}`, datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' } }));
+  const adapter = { async getStops() { return stops; }, async getSchedules() { return []; }, async getMunicipalFeatures() { return []; }, async getWalkingRoutes() { return []; }, async getMunicipalLocations() { return { addresses: [], districts: [] }; } };
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-duplicate-limit-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'duplicate-property', radiusMeters: 1000 } });
+    const context = result.structuredContent;
+    assert.equal(context.nearbyStops.totalWithinRadius, 1);
+    assert.ok(context.nearbyStops.items[0].sourceIds.length < 10);
+    assert.equal(context.sourceMetadata.stops.length, 10);
+    assert.ok(Buffer.byteLength(JSON.stringify(context)) < 20000);
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
