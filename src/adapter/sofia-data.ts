@@ -178,8 +178,13 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
       if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
       throw error;
     }
-    if (!cached[0] || stale) await this.#cache.write('sofia-addresses.json', JSON.stringify(addresses));
-    if (!cached[1] || stale) await this.#cache.write('sofia-districts.json', JSON.stringify(districts));
+    try {
+      if (!cached[0] || stale) await this.#cache.write('sofia-addresses.json', JSON.stringify(addresses));
+      if (!cached[1] || stale) await this.#cache.write('sofia-districts.json', JSON.stringify(districts));
+    } catch (error) {
+      if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
+      throw error;
+    }
     return { addresses, districts };
   }
 }

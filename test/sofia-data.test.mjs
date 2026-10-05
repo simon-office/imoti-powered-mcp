@@ -156,6 +156,44 @@ test('municipal cache refresh failure returns valid prior datasets unchanged', a
   assert.deepEqual(await adapter.getMunicipalLocations(), { addresses, districts });
 });
 
+test('over-age complete municipal cache refreshes and persists both updated datasets', async () => {
+  const oldProvenance = { name: 'old', sourceUrl: 'https://fixture.test', datasetDate: 'unknown', checkedAt: '2026-10-01T00:00:00.000Z', reuseTerms: 'synthetic' };
+  const oldAddresses = [{ settlement: 'Sofia', street: 'Old Fictional Road', region: 'A', latitude: 42, longitude: 23, provenance: oldProvenance }];
+  const oldDistricts = [{ name: 'Old Imaginary District', latitude: 42, longitude: 23, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance: oldProvenance }];
+  const cacheValues = new Map([['sofia-addresses.json', JSON.stringify(oldAddresses)], ['sofia-districts.json', JSON.stringify(oldDistricts)]]);
+  const writes = [];
+  let fetches = 0;
+  const adapter = new LocalSofiaDataAdapter({
+    cache: { read: async key => cacheValues.get(key), write: async (key, value) => { writes.push(key); cacheValues.set(key, value); } },
+    now: () => new Date('2026-10-10T00:00:00.000Z'),
+    fetchMunicipalData: async () => { fetches++; return { addressesZip: new ArrayBuffer(0), districtsText: JSON.stringify({ features: [{ properties: { kvname: 'КВ. НОВ' }, geometry: { type: 'MultiPolygon', coordinates: [[[[23, 42], [24, 42], [24, 43], [23, 42]]]] } }] }) }; },
+    unzipAddresses: async () => 'rn;region;settlement;lareaunit;block;street;streetnum;entrance;n;e\n1;A;гр. София;;;ул. Нова;;;42.5;23.5'
+  });
+
+  const result = await adapter.getMunicipalLocations();
+
+  assert.equal(fetches, 1);
+  assert.deepEqual(writes.sort(), ['sofia-addresses.json', 'sofia-districts.json']);
+  assert.equal(result.addresses[0].street, 'ул. Нова');
+  assert.equal(result.districts[0].name, 'КВ. НОВ');
+  assert.deepEqual(JSON.parse(cacheValues.get('sofia-addresses.json')), result.addresses);
+  assert.deepEqual(JSON.parse(cacheValues.get('sofia-districts.json')), result.districts);
+});
+
+test('municipal cache write failure returns both complete prior datasets unchanged', async () => {
+  const provenance = { name: 'old', sourceUrl: 'https://fixture.test', datasetDate: 'unknown', checkedAt: '2026-10-01T00:00:00.000Z', reuseTerms: 'synthetic' };
+  const addresses = [{ settlement: 'Sofia', street: 'Fictional Road', region: 'A', latitude: 42, longitude: 23, provenance }];
+  const districts = [{ name: 'Imaginary District', latitude: 42, longitude: 23, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance }];
+  const adapter = new LocalSofiaDataAdapter({
+    cache: { read: async key => JSON.stringify(key.includes('addresses') ? addresses : districts), write: async () => { throw new Error('disk full'); } },
+    now: () => new Date('2026-10-10T00:00:00.000Z'),
+    fetchMunicipalData: async () => ({ addressesZip: new ArrayBuffer(0), districtsText: JSON.stringify({ features: [{ properties: { kvname: 'КВ. НОВ' }, geometry: { type: 'MultiPolygon', coordinates: [[[[23, 42], [24, 42], [24, 43], [23, 42]]]] } }] }) }),
+    unzipAddresses: async () => 'rn;region;settlement;lareaunit;block;street;streetnum;entrance;n;e\n1;A;гр. София;;;ул. Нова;;;42.5;23.5'
+  });
+
+  assert.deepEqual(await adapter.getMunicipalLocations(), { addresses, districts });
+});
+
 test('local adapter loads and caches both municipal location datasets with their distinct reuse terms', async () => {
   const cacheValues = new Map();
   const writes = [];
