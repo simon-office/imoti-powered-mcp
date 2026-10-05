@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
-import { hasProtectiveScreen, requestDelay, assertPageCapacity } from '../dist/adapter/playwright.js';
+import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference } from '../dist/adapter/playwright.js';
 
 test('fixture adapter decodes windows-1251 bytes and records requested URLs', async () => {
   const adapter = new FixtureAdapter({ 'https://fake.test/search': new URL('./fixtures/search-windows-1251.html', import.meta.url) });
@@ -37,4 +37,12 @@ test('request delay and page capacity enforce their minimums and limits', () => 
   assert.equal(requestDelay(2500), 2500);
   assert.doesNotThrow(() => assertPageCapacity(19));
   assert.throws(() => assertPageCapacity(20), /20/);
+});
+
+test('photo references allow only HTTPS imotstatic image hosts', () => {
+  assert.equal(isAllowedPhotoReference('https://imotstatic1.focus.bg/fake-image.jpg'), true);
+  assert.equal(isAllowedPhotoReference('http://imotstatic1.focus.bg/fake-image.jpg'), false);
+  assert.equal(isAllowedPhotoReference('https://127.0.0.1/private'), false);
+  assert.equal(isAllowedPhotoReference('https://images.example.test/fake-image.jpg'), false);
+  assert.equal(isAllowedPhotoReference('https://imotstatic1.focus.bg.example.test/image.jpg'), false);
 });

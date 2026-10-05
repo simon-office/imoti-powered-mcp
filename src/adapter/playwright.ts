@@ -16,6 +16,15 @@ export function requestDelay(configured = MIN_REQUEST_DELAY_MS): number {
   return Math.max(MIN_REQUEST_DELAY_MS, configured);
 }
 
+export function isAllowedPhotoReference(reference: string): boolean {
+  try {
+    const url = new URL(reference);
+    return url.protocol === 'https:' && url.username === '' && url.password === '' && url.port === '' && /^imotstatic\d+\.focus\.bg$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function assertPageCapacity(pagesFetched: number, maxPages = DEFAULT_MAX_PAGES): void {
   if (pagesFetched >= maxPages) throw new Error(`Page limit of ${maxPages} reached for this run`);
 }
@@ -67,7 +76,10 @@ export class PlaywrightAdapter implements SiteAdapter {
     const context = await this.getContext();
     return Promise.all(references.map(async reference => {
       try {
-        const response = await context.request.get(reference);
+        if (!isAllowedPhotoReference(reference)) {
+          return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: 'Photo reference is not an allowed HTTPS image host.' };
+        }
+        const response = await context.request.get(reference, { maxRedirects: 0 });
         if (!response.ok()) return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', unavailableReason: `Image request returned HTTP ${response.status()}.` };
         return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', bytes: await response.body() };
       } catch (error) {
