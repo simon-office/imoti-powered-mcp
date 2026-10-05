@@ -54,6 +54,16 @@ test('search environment limits apply as defaults and reject values over the doc
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test('explicit page limit overrides the environment default', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
+  try {
+    const result = run(['search', '--fixtures', new URL('./fixtures', import.meta.url).pathname, '--max-pages', '3'], directory, { IMOTI_SEARCH_MAX_PAGES: '1' });
+    assert.equal(result.status, 0, result.stderr);
+    const saved = JSON.parse(await readFile(join(directory, 'last-search.json'), 'utf8'));
+    assert.equal(saved.query.criteria.maxPages, 3);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test('listing command prints a parsed fixture listing', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
   try {

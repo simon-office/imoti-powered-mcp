@@ -70,7 +70,7 @@ async function main() {
   let adapter;
   try {
     if (parsed.options.visible) process.env.IMOTI_VISIBLE = '1';
-    adapter = parsed.options.fixtures ? await fixtureAdapter(parsed.options.fixtures) : new PlaywrightAdapter({ dataDir, maxPages: Number(process.env.IMOTI_SEARCH_MAX_PAGES ?? 20) });
+    adapter = parsed.options.fixtures ? await fixtureAdapter(parsed.options.fixtures) : new PlaywrightAdapter({ dataDir, maxPages: parsed.command === 'search' && parsed.criteria.maxPages !== undefined ? parsed.criteria.maxPages as number : Number(process.env.IMOTI_SEARCH_MAX_PAGES ?? 20) });
     await mkdir(dataDir, { recursive: true });
     const storage = openStorage(join(dataDir, 'imoti.db'));
     const server = createServer({ adapter, storage });
