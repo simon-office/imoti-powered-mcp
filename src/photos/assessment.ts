@@ -29,10 +29,53 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+const observationLabels: Record<PhotoFinding['category'], Record<string, string>> = {
+  visible_room: {
+    living_room: 'A living room is visible in this image.',
+    bedroom: 'A bedroom is visible in this image.',
+    kitchen: 'A kitchen is visible in this image.',
+    bathroom: 'A bathroom is visible in this image.',
+    other_room: 'An interior room is visible in this image.',
+    unclear: 'The room type is unclear in this image.',
+  },
+  finish: {
+    painted_walls: 'Painted wall finishes are visible.',
+    tiled_finish: 'Tiled finishes are visible.',
+    wood_finish: 'Wood finishes are visible.',
+    mixed_finish: 'Multiple finish types are visible.',
+    unclear: 'The visible finish is unclear.',
+  },
+  apparent_renovation: {
+    recently_updated_appearance: 'Visible finishes have an apparently updated appearance.',
+    dated_appearance: 'Visible finishes have a dated appearance.',
+    mixed_appearance: 'Visible finishes have a mixed appearance.',
+    unclear: 'The apparent renovation state is unclear.',
+  },
+  render: {
+    likely_render: 'This image may be a render rather than a photograph.',
+    likely_photograph: 'This image appears more consistent with a photograph.',
+    unclear: 'Render versus photograph cannot be determined confidently.',
+  },
+  coverage: {
+    room_not_shown: 'This image does not show an identifiable room.',
+    view_unclear: 'The visible coverage is unclear.',
+  },
+};
+const uncertaintyLabels: Record<string, string> = {
+  visible_frame_only: 'Assessment is limited to the visible frame.',
+  image_quality_limited: 'Image quality limits confidence in this observation.',
+  partial_view: 'The view is partial and may omit relevant context.',
+  uncertain_classification: 'This classification is uncertain.',
+};
+
 function safeProviderFindings(findings: PhotoFinding[], photos: ListingPhoto[]): PhotoFinding[] {
   const references = new Set(photos.map(photo => photo.reference));
-  const hidden = /\b(hidden|concealed|underlying|structural|electrical|plumbing|mold|mould|leak|water damage|asbestos|foundation|defect|damage)\b/i;
-  return findings.filter(item => references.has(item.reference) && !hidden.test(item.observation) && !hidden.test(item.uncertainty));
+  return findings.flatMap(item => {
+    const observation = observationLabels[item.category]?.[item.observation];
+    const uncertainty = uncertaintyLabels[item.uncertainty];
+    if (!references.has(item.reference) || !observation || !uncertainty) return [];
+    return [{ reference: item.reference, category: item.category, observation, uncertainty }];
+  });
 }
 
 export async function assessListingPhotos(photos: ListingPhoto[], options: PhotoAssessmentOptions): Promise<PhotoAssessmentResult> {

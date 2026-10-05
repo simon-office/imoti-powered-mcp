@@ -52,7 +52,7 @@ export async function assessWithOpenRouter(
       body: JSON.stringify({
         model: options.model,
         messages: [{ role: 'user', content: [
-          { type: 'text', text: `Assess only visible details in these property photos. Return JSON with a findings array; each finding has reference, category (visible_room, finish, apparent_renovation, render, or coverage), observation and uncertainty. Use only the exact image references supplied. Never infer hidden defects, damage, structural condition, or unseen details. ${available.map((photo, index) => `Image ${index + 1}: ${photo.reference}`).join('\n')}` },
+          { type: 'text', text: `Assess only visible details. Return JSON findings containing only reference, category, observation, and uncertainty. category must be visible_room, finish, apparent_renovation, render, or coverage. observation must be one label: living_room, bedroom, kitchen, bathroom, other_room, unclear, painted_walls, tiled_finish, wood_finish, mixed_finish, recently_updated_appearance, dated_appearance, mixed_appearance, likely_render, likely_photograph, room_not_shown, or view_unclear. uncertainty must be visible_frame_only, image_quality_limited, partial_view, or uncertain_classification. Use exact references for these images: ${available.map(photo => photo.reference).join(', ')}` },
           ...available.map(photo => ({ type: 'image_url', image_url: { url: `data:${photo.mediaType};base64,${toBase64(photo.bytes!)}` } })),
         ] }],
         response_format: { type: 'json_object' },
