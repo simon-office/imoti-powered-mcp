@@ -7,10 +7,11 @@ import { FixtureAdapter } from './adapter/fixture.js';
 import { PlaywrightAdapter } from './adapter/playwright.js';
 import { ProtectiveScreenError } from './adapter/types.js';
 import { createServer } from './server.js';
+import { configuredSearchLimit, DEFAULT_SEARCH_MAX_PAGES, DEFAULT_SEARCH_MAX_RESULTS } from './search/criteria.js';
 import { openStorage } from './storage/index.js';
 
 const usage = `Usage:
-  npm run search -- [--deal sale|rent] [--district NAME ...] [--type TYPE ...] [--rooms N] [--max-price N] [--limit N] [--pages N] [--price-min N] [--price-max N] [--area-min N] [--area-max N] [--fixtures DIR] [--visible]
+  npm run search -- [--deal sale|rent] [--district NAME ...] [--type TYPE ...] [--rooms N] [--max-price N] [--max-results N] [--max-pages N] [--price-min N] [--price-max N] [--area-min N] [--area-max N] [--fixtures DIR] [--visible]
   npm run listing -- <ID|URL> [--refresh] [--fixtures DIR] [--visible]
   npm run refresh -- [--fixtures DIR]`;
 type Options = { fixtures?: string; visible: boolean; refresh: boolean };
@@ -21,7 +22,7 @@ function parse(argv: string[]) {
   const options: Options = { visible: false, refresh: false };
   const criteria: Record<string, unknown> = {};
   let target: string | undefined;
-  const numeric: Record<string, string> = { '--price-min': 'priceMin', '--price-max': 'priceMax', '--max-price': 'priceMax', '--area-min': 'areaMin', '--area-max': 'areaMax', '--limit': 'limit', '--pages': 'maxPages' };
+  const numeric: Record<string, string> = { '--price-min': 'priceMin', '--price-max': 'priceMax', '--max-price': 'priceMax', '--area-min': 'areaMin', '--area-max': 'areaMax', '--max-results': 'limit', '--limit': 'limit', '--max-pages': 'maxPages', '--pages': 'maxPages' };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--visible') options.visible = true;
@@ -42,6 +43,12 @@ function parse(argv: string[]) {
   }
   if (command === 'listing' && !target) throw new Error('Listing requires an id or URL');
   if (command === 'refresh' && (options.visible || options.refresh || Object.keys(criteria).length || target)) throw new Error('Refresh accepts only --fixtures DIR');
+  if (command === 'search') {
+    if (criteria.limit === undefined && process.env.IMOTI_SEARCH_MAX_RESULTS !== undefined) criteria.limit = configuredSearchLimit('IMOTI_SEARCH_MAX_RESULTS', DEFAULT_SEARCH_MAX_RESULTS);
+    if (criteria.maxPages === undefined && process.env.IMOTI_SEARCH_MAX_PAGES !== undefined) criteria.maxPages = configuredSearchLimit('IMOTI_SEARCH_MAX_PAGES', DEFAULT_SEARCH_MAX_PAGES);
+    if (criteria.limit !== undefined && (!Number.isInteger(criteria.limit) || (criteria.limit as number) < 10 || (criteria.limit as number) > 20)) throw new Error('Search result limit must be an integer from 10 to 20');
+    if (criteria.maxPages !== undefined && (!Number.isInteger(criteria.maxPages) || (criteria.maxPages as number) < 1 || (criteria.maxPages as number) > 3)) throw new Error('Search page limit must be an integer from 1 to 3');
+  }
   return { command: command!, target, options, criteria };
 }
 
@@ -63,7 +70,7 @@ async function main() {
   let adapter;
   try {
     if (parsed.options.visible) process.env.IMOTI_VISIBLE = '1';
-    adapter = parsed.options.fixtures ? await fixtureAdapter(parsed.options.fixtures) : new PlaywrightAdapter({ dataDir });
+    adapter = parsed.options.fixtures ? await fixtureAdapter(parsed.options.fixtures) : new PlaywrightAdapter({ dataDir, maxPages: Number(process.env.IMOTI_SEARCH_MAX_PAGES ?? 20) });
     await mkdir(dataDir, { recursive: true });
     const storage = openStorage(join(dataDir, 'imoti.db'));
     const server = createServer({ adapter, storage });

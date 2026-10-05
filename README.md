@@ -71,38 +71,24 @@ appended to a log file in the user's home directory:
 Open with `crontab -e` and paste the line. Cron and launchd examples use different minutes so enabling both does not
 normally start overlapping refreshes.
 
-## Quick start
+## Clean-checkout setup
 
-Install dependencies and build the MCP server, then load this repository as a Claude Code plugin. In the Claude Code session, try: “Find a two-bedroom apartment in Sofia under €350,000, within walking distance of the metro.” See [`docs/sample-requests.md`](docs/sample-requests.md) for the corresponding tool calls and more examples.
+Prerequisites: Node.js 24 or newer, npm, Claude Code to load the plugin, and an installed Chrome or Chromium executable for live browsing. `playwright-core` does not install or download a browser. From a clean checkout, run these exact commands:
 
 ```sh
-npm ci
+npm ci --include=dev
 npm run build
+npm test
 claude --plugin-dir .
 ```
 
-## Build and test
-
-Requires Node.js 24 or newer.
-
-```sh
-npm ci
-npm run build
-npm test
-```
-
-## Load in Claude Code
-
-Build the server, then load this checkout as a plugin:
-
-```sh
-npm run build
-claude --plugin-dir <repository>
-```
+In the Claude Code session, try: “Find a two-bedroom apartment in Sofia under €350,000, within walking distance of the metro.” See [`docs/sample-requests.md`](docs/sample-requests.md) for tool-call examples.
 
 ## Browser adapter
 
-The browser adapter requires an installed Chrome or Chromium executable; `playwright-core` does not download a browser during `npm ci`. By default it uses the Chrome channel. Set `IMOTI_BROWSER_EXECUTABLE` (or pass `executablePath`) to use a specific browser executable. The persistent profile is stored at `IMOTI_DATA_DIR/profile` (default `~/.imoti-powered-mcp/profile`), outside the repository. Set `IMOTI_VISIBLE=1` to launch the browser visibly when a protective screen asks for human continuation. The adapter stops on protective screens and does not automate CAPTCHA or other challenges.
+The browser adapter requires an installed Chrome or Chromium executable; `playwright-core` does not download a browser during installation. By default it uses the Chrome channel. Set `IMOTI_BROWSER_EXECUTABLE` (or pass `executablePath`) to use a specific browser executable. The persistent profile is stored at `IMOTI_DATA_DIR/profile` (default `~/.imoti-powered-mcp/profile`), outside the repository. Set `IMOTI_VISIBLE=1` to launch the browser visibly when a protective screen asks for human continuation. The adapter stops on protective screens and does not automate CAPTCHA or other challenges.
+
+Search collection is bounded. `--max-results N` (or `IMOTI_SEARCH_MAX_RESULTS=N`) controls results, default 15, allowed range 10–20. `--max-pages N` (or `IMOTI_SEARCH_MAX_PAGES=N`) controls pages per search, default 3, allowed range 1–3. The CLI also accepts the legacy aliases `--limit` and `--pages`. The browser adapter retains its independent per-run ceiling of 20 pages (default); configured values are validated and cannot raise the search's 3-page cap. CLI flags override the corresponding environment defaults. MCP callers use `limit` and `criteria.maxPages` in `search_listings` with the same bounds.
 
 The browser launch path has not been checked in CI; it remains unchecked pending the owner's live run on a machine with Chrome or Chromium installed.
 

@@ -8,6 +8,13 @@ test('criteria defaults deal, city and page limit', () => {
   assert.deepEqual(searchCriteriaSchema.parse({}), { deal: 'sale', city: 'sofia', districts: [], propertyTypes: [], maxPages: 3 });
 });
 
+test('criteria preserves the bounded default page limit and rejects values outside its safety bound', () => {
+  assert.equal(searchCriteriaSchema.parse({}).maxPages, 3);
+  assert.equal(searchCriteriaSchema.parse({ maxPages: 1 }).maxPages, 1);
+  assert.throws(() => searchCriteriaSchema.parse({ maxPages: 0 }));
+  assert.throws(() => searchCriteriaSchema.parse({ maxPages: 4 }));
+});
+
 test('builds a paginated URL per district using only verified price_max', () => {
   const result = buildSearchUrls(searchCriteriaSchema.parse({ deal: 'sale', districts: ['Изток', 'Lozenets'], rooms: { min: 3, max: 3 }, priceMin: 100, priceMax: 350000, areaMin: 60, areaMax: 120, maxPages: 2 }));
   assert.deepEqual(result.urls, [

@@ -6,7 +6,7 @@ import { VERSION } from './version.js';
 import type { SiteAdapter } from './adapter/types.js';
 import { ProtectiveScreenError } from './adapter/types.js';
 import type { Storage, Listing } from './storage/index.js';
-import { searchCriteriaSchema } from './search/criteria.js';
+import { configuredSearchLimit, DEFAULT_SEARCH_MAX_PAGES, DEFAULT_SEARCH_MAX_RESULTS, MAX_SEARCH_MAX_PAGES, MAX_SEARCH_MAX_RESULTS, MIN_SEARCH_MAX_RESULTS, searchCriteriaSchema } from './search/criteria.js';
 import { buildSearchUrls, verifyFilters } from './search/url-builder.js';
 import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
@@ -28,6 +28,9 @@ export interface ServerDependencies {
 
 export function createServer(deps: ServerDependencies = {}): McpServer {
   const dataDir = deps.dataDir ?? process.env.IMOTI_DATA_DIR ?? `${homedir()}/.imoti-powered-mcp`;
+  const defaultSearchPages = configuredSearchLimit('IMOTI_SEARCH_MAX_PAGES', DEFAULT_SEARCH_MAX_PAGES);
+  const defaultSearchResults = configuredSearchLimit('IMOTI_SEARCH_MAX_RESULTS', DEFAULT_SEARCH_MAX_RESULTS);
+  const searchToolCriteriaSchema = searchCriteriaSchema.extend({ maxPages: z.number().int().min(1).max(MAX_SEARCH_MAX_PAGES).default(defaultSearchPages) });
   const server = new McpServer({ name: 'imoti', version: VERSION });
   const outputSchema = {
     name: z.string(),
@@ -344,7 +347,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
     });
     server.registerTool('search_listings', {
       description: 'Search verified property listings in Sofia. Returns matching listings and filter verification.',
-      inputSchema: { criteria: searchCriteriaSchema, limit: z.number().int().min(10).max(20).default(15) },
+      inputSchema: { criteria: searchToolCriteriaSchema, limit: z.number().int().min(MIN_SEARCH_MAX_RESULTS).max(MAX_SEARCH_MAX_RESULTS).default(defaultSearchResults) },
       outputSchema: searchOutput,
     }, async ({ criteria, limit }) => {
       try {
