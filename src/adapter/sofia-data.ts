@@ -162,13 +162,19 @@ function parseCachedLocations(text: string | undefined, key: 'addresses' | 'dist
     const value = JSON.parse(text);
     if (Array.isArray(value) && value.length > 0 && value.every(row => key === 'addresses'
       ? typeof row.settlement === 'string' && typeof row.street === 'string' && typeof row.region === 'string' && Number.isFinite(row.latitude) && Number.isFinite(row.longitude) && validProvenance(row.provenance)
-      : typeof row.name === 'string' && Number.isFinite(row.latitude) && Number.isFinite(row.longitude) && validProvenance(row.provenance))) return value;
+      : typeof row.name === 'string' && Number.isFinite(row.latitude) && Number.isFinite(row.longitude) && validGeometry(row.geometry) && validProvenance(row.provenance))) return value;
   } catch { /* refresh malformed cache */ }
   return undefined;
 }
 
 function validProvenance(value: unknown): boolean {
   return !!value && typeof value === 'object' && ['name', 'sourceUrl', 'datasetDate', 'checkedAt', 'reuseTerms'].every(key => typeof (value as Record<string, unknown>)[key] === 'string');
+}
+
+function validGeometry(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const geometry = value as { type?: unknown; coordinates?: unknown };
+  return geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates);
 }
 
 function parseAddressCsv(text: string, provenance: MunicipalLocationDatasets['addresses'][number]['provenance']): MunicipalLocationDatasets['addresses'] {
@@ -194,7 +200,7 @@ function parseDistrictGeoJson(text: string, provenance: MunicipalLocationDataset
     const geometry = feature.geometry;
     if (typeof name !== 'string' || geometry?.type !== 'MultiPolygon' || !Array.isArray(geometry.coordinates)) return [];
     const centroid = multiPolygonCentroid(geometry.coordinates as number[][][][]);
-    return centroid ? [{ name, latitude: centroid[1], longitude: centroid[0], provenance }] : [];
+    return centroid ? [{ name, latitude: centroid[1], longitude: centroid[0], geometry: { type: 'MultiPolygon' as const, coordinates: geometry.coordinates as number[][][][] }, provenance }] : [];
   });
 }
 
