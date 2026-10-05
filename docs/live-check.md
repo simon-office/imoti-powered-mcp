@@ -1,3 +1,37 @@
+# Owner live check (stage 1)
+
+Build the project, then run searches on the owner's machine with a normal browser available:
+
+```sh
+npm run search -- --type tristaen --price-max 350000 --area-min 70
+npm run search -- --deal rent --price-max 1600 --district Lozenets
+npm run search -- --district Iztok --district Lozenets --type dvustaen
+```
+
+Each search prints filter verification and listing rows, then saves the full structured response to
+`$IMOTI_DATA_DIR/last-search.json` (default `~/.imoti-powered-mcp/last-search.json`). To use synthetic
+HTML fixtures without a browser or network, add `--fixtures test/fixtures`. Listing details can be checked with
+`npm run listing -- <id-or-url> [--refresh]`; `--visible` opens the browser visibly. If a protective screen appears,
+stop and continue manually in visible mode; do not automate past it.
+
+## Compare ten results visually
+
+For ten returned listings, compare the CLI's structured data with each page and record whether each field agrees:
+
+| Listing | Price | Area | Floor | District | Street precision | Photo count | Notes |
+|---|---|---|---|---|---|---|---|
+| 1–10 | | | | | | | |
+
+Use the page as the reference. For street precision, record what is actually disclosed (exact address, street,
+neighbourhood, or unknown); do not infer an exact location from a map pin or agency office. Count visible listing photos,
+not thumbnails duplicated by the page layout.
+
+## Report mismatches
+
+If the CLI differs from the page, create an office task with the command and criteria used, listing id, field, CLI value,
+observed page value, and a short explanation. Include the saved `last-search.json` as evidence when relevant. Use made-up
+or redacted values in public examples; never attach personal data, browser profiles, credentials, photos, or page dumps.
+
 # Owner live check (stage 2: memory and monitoring)
 
 Build the project and start the plugin on the owner's machine with Chrome or Chromium installed. Use synthetic values below
@@ -66,3 +100,69 @@ problem.
 Do not include credentials, tokens, personal data, browser profiles, actual identifying listing details, photos, copied
 listing pages, page dumps, or raw `last-search.json`/database contents in a report. Share only the minimum redacted output
 needed to substantiate the result.
+
+## Owner live check (stage 3: photo and location assessment)
+
+Use two or more listings already returned by your own stage 1 search and stored locally. The IDs below are made-up examples;
+replace them with IDs from your private session. These calls use the MCP tools exposed in the Claude Code session.
+
+1. Retrieve a bounded page of photos. `get_listing_photos` also returns the deterministic photo assessment, configured
+   provider findings and, when the host provider is selected, image content blocks for the host model to assess. Continue
+   with the returned `nextOffset` if non-null; do not collect or attach image content in your report.
+
+   ```json
+   { "name": "get_listing_photos", "arguments": { "listingId": "1c100000000000001", "offset": 0 } }
+   ```
+
+2. Ask for location precision, nearby stops and municipal context. The radius is in metres.
+
+   ```json
+   { "name": "area_context", "arguments": { "listingId": "1c100000000000001", "radiusMeters": 1000 } }
+   ```
+
+3. Compare the same locally stored listings, including their saved photo assessment, location evidence and asking-price
+   positioning. This uses supplied asking prices, not completed-sale prices or a market-wide valuation.
+
+   ```json
+   { "name": "compare_listings", "arguments": { "listingIds": ["1c100000000000001", "1c100000000000002"] } }
+   ```
+
+### Provider configuration and evidence
+
+Provider fallback order is: deterministic local checks and a configured local Ollama vision model; then a
+free OpenRouter vision model when configured with the owner's own API key and free-model setting; finally the host model,
+which receives image content blocks. Configure Ollama with `OLLAMA_ENDPOINT` and `OLLAMA_MODEL`; configure OpenRouter with
+`OPENROUTER_API_KEY` and `OPENROUTER_MODEL` (select a free vision model). If an earlier configured provider fails, the
+assessment tries the next provider before host fallback. Keep the key local; never put credentials in a command transcript
+or report. Record the provider actually named in the response.
+For each returned photo or location/context source, inspect source/provenance, date or observation timestamp, and whether
+the same reference/source is reused; note missing metadata as unavailable rather than guessing. Review uncertainty and
+coverage before drawing conclusions.
+
+### Manual labelled sample and owner-completed report
+
+Simon should manually assess a small sample of photos and context results. For each photo, label whether the visible room,
+finish and apparent renovation need are correctly characterized; whether any render is identified as render versus photo;
+and whether image coverage is sufficient. For each listing's context, label location match and precision, and nearby-stop/
+context accuracy. Use **correct**, **incorrect**, or **uncertain** per field, then report correct, incorrect, and uncertain
+counts for each field. Hidden defects cannot be validated from photos.
+
+Fill this template only after the owner's live run; counts and examples below are deliberately blank and are not results:
+
+| Field | Correct | Incorrect | Uncertain | Redacted example (image reference only) |
+|---|---:|---:|---:|---|
+| Visible room | — | — | — | — |
+| Finish | — | — | — | — |
+| Apparent renovation need | — | — | — | — |
+| Render/photo | — | — | — | — |
+| Coverage | — | — | — | — |
+| Location match | — | — | — | — |
+| Location precision | — | — | — | — |
+| Nearby-stop/context accuracy | — | — | — | — |
+
+**Owner-completed template:** date/time: ___; runtime (Node, OS, Claude Code/model): ___; commands/tool calls: ___;
+provider(s): ___; sample size: ___; observed results/counts: ___; unavailable cases: ___; redacted examples with image
+references: ___; errors: ___. Do not fabricate Simon's outcomes. Exclude photos, exact addresses, credentials and personal
+data from reports and fixtures; do not include photos, exact addresses, credentials, or personal data in any shared report.
+Share only redacted image references, never image bytes, URLs that expose exact locations,
+or copied listing content.

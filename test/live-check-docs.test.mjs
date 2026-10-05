@@ -8,7 +8,7 @@ const read = path => readFile(new URL(path, root), 'utf8');
 test('live-check documentation gives executable memory and refresh steps', async () => {
   const doc = await read('docs/live-check.md');
   const examples = [...doc.matchAll(/```json\s*([\s\S]*?)\s*```/g)].map(([, json]) => JSON.parse(json));
-  assert.deepEqual(examples, [
+  assert.deepEqual(examples.slice(0, 4), [
     {
       name: 'save_search',
       arguments: {
@@ -38,6 +38,34 @@ test('live-check documentation gives executable memory and refresh steps', async
   assert.match(doc, /close the Claude Code chat\/session/i);
 });
 
+test('live-check preserves stage 1 and provides runnable stage 3 evaluation calls', async () => {
+  const doc = await read('docs/live-check.md');
+  assert.match(doc, /Owner live check \(stage 1\)/);
+  assert.match(doc, /npm run search -- --type tristaen --price-max 350000 --area-min 70/);
+  assert.match(doc, /Compare ten results visually/);
+  assert.match(doc, /Owner live check \(stage 3/);
+  const examples = [...doc.matchAll(/```json\s*([\s\S]*?)\s*```/g)].map(([, json]) => JSON.parse(json));
+  assert.deepEqual(examples.slice(-3), [
+    { name: 'get_listing_photos', arguments: { listingId: '1c100000000000001', offset: 0 } },
+    { name: 'area_context', arguments: { listingId: '1c100000000000001', radiusMeters: 1000 } },
+    { name: 'compare_listings', arguments: { listingIds: ['1c100000000000001', '1c100000000000002'] } },
+  ]);
+  assert.match(doc, /`get_listing_photos` also returns the deterministic photo assessment/i);
+});
+
+test('stage 3 explains human labels, metadata, privacy, and leaves outcomes blank', async () => {
+  const doc = await read('docs/live-check.md');
+  for (const label of ['visible room', 'finish', 'apparent renovation need', 'render/photo', 'coverage', 'location match', 'precision', 'nearby-stop/context accuracy']) {
+    assert.match(doc, new RegExp(label, 'i'));
+  }
+  assert.match(doc, /correct, incorrect, and uncertain\s+counts/i);
+  assert.match(doc, /hidden defects cannot be validated from photos/i);
+  assert.match(doc, /provider fallback order[\s\S]*?Ollama[\s\S]*?OpenRouter[\s\S]*?host model/i);
+  assert.match(doc, /source[\s\S]*?date[\s\S]*?reuse/i);
+  assert.match(doc, /owner-completed template/i);
+  assert.match(doc, /Exclude photos, exact addresses, credentials and personal\s+data/i);
+});
+
 test('live-check documents stage 2 event expectations and safe reporting', async () => {
   const doc = await read('docs/live-check.md');
   assert.match(doc, /first observation[\s\S]*?starts local history at that observation[\s\S]*?no inferred earlier price history/i);
@@ -48,9 +76,9 @@ test('live-check documents stage 2 event expectations and safe reporting', async
   assert.match(doc, /Do not include credentials, tokens, personal data[\s\S]*?photos, copied\s+listing pages, page dumps/i);
 });
 
-test('README reports stage 2 and documents local refresh', async () => {
+test('README reports stage 3 in development and documents local refresh', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 2/i);
+  assert.match(readme, /Status: stage 3 photo\/location assessment, in development/i);
   assert.match(readme, /npm run refresh --/);
 });
 
