@@ -16,9 +16,10 @@ export function resolveListingLocation(listing: Listing): ResolvedLocation {
   const district = stringValue(location.district);
   const street = stringValue(location.street);
   const evidence = location.propertySpecificEvidence === true;
+  const hasUnambiguousStreet = street !== null && (district !== null || /^(?:ул\.?|бул\.?|пл\.?|ж\.к\.?|кв\.?)(?:\s|$)/i.test(street));
   const precision = evidence && validCoordinates(location.coordinates)
     ? 'exact'
-    : street && district ? 'street' : district ? 'neighbourhood' : 'unknown';
+    : hasUnambiguousStreet ? 'street' : district ? 'neighbourhood' : 'unknown';
   const result: ResolvedLocation = {
     city, district, street,
     precision,
