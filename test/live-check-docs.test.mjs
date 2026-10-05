@@ -119,3 +119,30 @@ test('README documents safe launchd and cron refresh schedules', async () => {
   assert.match(readme, /credentials?[\s\S]*?local/i);
   assert.match(readme, /protective screens?[\s\S]*?manual(?:ly)? continuation/i);
 });
+
+test('release limitation and site-permission docs exist, are linked, and cover required decisions', async () => {
+  const limitations = await read('docs/limitations.md');
+  const permissions = await read('docs/site-permissions.md');
+  const readme = await read('README.md');
+  assert.match(readme, /docs\/limitations\.md/);
+  assert.match(readme, /docs\/site-permissions\.md/);
+  for (const phrase of [
+    /host model or configured provider/i,
+    /PNG.signature[\s\S]*?JPEG renders/i,
+    /hidden defects/i,
+    /no longer observed[\s\S]*?not sold/i,
+    /asking prices[\s\S]*?transaction prices/i,
+    /location precision/i,
+    /freshness/i,
+  ]) assert.match(limitations, phrase);
+  for (const url of ['https://www.imot.bg/obshti-uslovia', 'https://www.imot.bg/zashtita-na-lichni-danni', 'https://www.imot.bg/contacts', 'https://www.imot.bg/robots.txt']) {
+    assert.ok(permissions.includes(url), `missing source URL ${url}`);
+  }
+  assert.match(permissions, /5 October 2026/);
+  assert.match(permissions, /office environment[\s\S]*?403[\s\S]*?challenge/i);
+  assert.match(permissions, /source facts/i);
+  assert.match(permissions, /inference/i);
+  assert.match(permissions, /unresolved questions/i);
+  assert.match(permissions, /Simon[\s\S]*?decision/i);
+  assert.match(permissions, /obtain[\s\S]*?authoritative text/i);
+});
