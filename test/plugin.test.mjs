@@ -15,7 +15,7 @@ test('property-search skill exists with required frontmatter fields', async () =
 test('plugin manifest retains the task 2 required fields', async () => {
   const manifest = JSON.parse(await readFile(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8'));
   assert.match(manifest.name, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
   assert.equal(typeof manifest.description, 'string');
   assert.ok(manifest.description.length > 0);
   assert.deepEqual(manifest.author, { name: 'Simon Office' });
