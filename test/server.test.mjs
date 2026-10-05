@@ -107,14 +107,15 @@ test('get_listing_photos returns ordered bounded metadata and does not persist i
       assert.equal(Object.hasOwn(result.structuredContent.photos[0], 'bytes'), false);
       assert.equal(result.structuredContent.photos[1].unavailableReason, 'Generated fixture image unavailable.');
       assert.ok(result.structuredContent.photos.every(photo => photo.mediaType.startsWith('image/')));
-      assert.deepEqual(result.structuredContent.uncertainty, [`Photo ${references[1]}: Generated fixture image unavailable.`]);
+      assert.ok(result.structuredContent.uncertainty.includes(`Photo ${references[1]}: Generated fixture image unavailable.`));
+      assert.ok(result.structuredContent.uncertainty.some(item => item.includes('coverage is incomplete')));
     });
     assert.deepEqual(storage.getListing(listingId).photos, references, 'stored listing retains only the references');
     assert.equal(Object.hasOwn(storage.getListing(listingId), 'bytes'), false);
   } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
 });
 
-test('photo responses assess six photos in-process, bound host images, and continue by offset', async () => {
+test('photo responses assess only the bounded page, expose assessment host blocks, and continue by offset', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-pages-'));
   const storage = openStorage(join(directory, 'test.db'));
   const refs = Array.from({ length: 6 }, (_, i) => `https://fake.test/${i}.jpg`);
@@ -124,9 +125,11 @@ test('photo responses assess six photos in-process, bound host images, and conti
   try {
     await withClient(createServer({ adapter, storage }), async client => {
       const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'six-photos' } });
+      assert.equal(result.structuredContent.assessment.images.length, 3);
       assert.ok(result.structuredContent.assessment.images.every(image => image.width === 320 && image.height === 640));
       assert.equal(result.structuredContent.nextOffset, 3);
       assert.equal(result.content.filter(block => block.type === 'image').length, 3);
+      assert.ok(result.content.filter(block => block.type === 'image').every(block => block.data === Buffer.from(bytes).toString('base64')));
       assert.ok(Buffer.byteLength(JSON.stringify(result), 'utf8') <= 64 * 1024);
       assert.doesNotMatch(JSON.stringify(result), /"bytes"\s*:\s*\[/);
       const next = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'six-photos', offset: 3 } });
@@ -136,7 +139,7 @@ test('photo responses assess six photos in-process, bound host images, and conti
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test('photo fallback requests the site big variant for host image blocks', async () => {
+test('photo assessment host blocks retain the assessed original image bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-variants-'));
   const storage = openStorage(join(directory, 'test.db'));
   const reference = 'https://imotstatic1.focus.bg/photosimotbg/a/b/big1/photo.jpg';
@@ -149,7 +152,7 @@ test('photo fallback requests the site big variant for host image blocks', async
     await withClient(createServer({ adapter, storage }), async client => {
       const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'variant-photo' } });
       assert.equal(result.content.filter(block => block.type === 'image').length, 1);
-      assert.equal(result.content.find(block => block.type === 'image').data, Buffer.from(previewBytes).toString('base64'));
+      assert.equal(result.content.find(block => block.type === 'image').data, Buffer.from(originalBytes).toString('base64'));
       assert.equal(result.structuredContent.assessment.images[0].width, 320);
       assert.equal(result.structuredContent.assessment.images[0].height, 640);
     });
