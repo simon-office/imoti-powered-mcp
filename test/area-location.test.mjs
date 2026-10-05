@@ -98,6 +98,8 @@ test('area_context uses straight-line stop distances when routes are absent', as
     const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'straight-property', radiusMeters: 1000 } });
     const stops = result.structuredContent.nearbyStops;
     assert.equal(stops.distanceType, 'straight-line');
+    assert.equal(stops.nearestStraightLineDistanceMeters, stops.nearestDistanceMeters);
+    assert.match(result.content[0].text, new RegExp(`nearest straight-line distance ${Math.round(stops.nearestStraightLineDistanceMeters)} m`));
     assert.deepEqual(stops.items.map(item => item.id), ['near', 'far']);
     assert.ok(stops.items.every(item => typeof item.distanceMeters === 'number'));
     assert.equal(result.structuredContent.sourceMetadata.stops[0].sourceUrl, provenance.sourceUrl);
@@ -151,6 +153,8 @@ test('area_context returns dated provenance and explicit unavailable distances f
     assert.equal(result.isError, undefined, result.content?.[0]?.text);
     assert.equal(result.structuredContent.location.precision, 'unknown');
     assert.equal(result.structuredContent.nearbyStops.status, 'unavailable');
+    assert.equal('nearestStraightLineDistanceMeters' in result.structuredContent.nearbyStops, false);
+    assert.doesNotMatch(result.content[0].text, /nearest .*distance/);
     assert.match(result.structuredContent.nearbyStops.reason, /coordinates|location/i);
     assert.equal(result.structuredContent.sourceMetadata.stops[0].datasetDate, 'synthetic-2026-01-01');
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
@@ -186,8 +190,34 @@ test('area_context returns coordinate-backed routed stops, schedules, and featur
     assert.deepEqual(context.schedules.items.map(item => item.stopId), ['near-stop']);
     assert.deepEqual(context.municipalFeatures.items.map(item => [item.id, item.distanceMeters]), [['near-park', 420]]);
     assert.match(result.content[0].text, /pedestrian-route distance/);
+    assert.ok(Math.abs(context.nearbyStops.nearestStraightLineDistanceMeters - 137.9933) < 0.001);
+    assert.match(result.content[0].text, /nearest straight-line distance 138 m/);
     assert.equal(context.sourceMetadata.stops[0].datasetDate, 'synthetic-2026-03-04');
     assert.equal(context.sourceMetadata.routing[0].sourceUrl, 'https://fixture.test/area');
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context measures nearest straight-line distance across routed stops before truncation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-routed-straight-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'distance-property', location: { city: 'Sofia', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const provenance = { name: 'Synthetic routes', sourceUrl: 'https://fixture.test/routes', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const stops = Array.from({ length: 12 }, (_, i) => ({ id: `distance-stop-${i}`, name: `Imaginary Distance Stop ${i}`, latitude: 42.7 + (12 - i) / 10000, longitude: 23.3, provenance }));
+  const adapter = new FixtureSofiaDataAdapter({ stops, walkingRoutes: stops.map((stop, i) => ({ origin: 'distance-property', destination: stop.id, distanceMeters: 200 + i * 10, durationSeconds: 150 + i * 10, provenance })) });
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-distance-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'distance-property', radiusMeters: 500 } });
+    const nearby = result.structuredContent.nearbyStops;
+    assert.equal(nearby.totalWithinRadius, 12);
+    assert.equal(nearby.items.length, 10);
+    assert.equal(nearby.distanceType, 'pedestrian-route');
+    assert.equal(nearby.nearestDistanceMeters, 200);
+    assert.deepEqual(nearby.items.map(item => item.distanceMeters), Array.from({ length: 10 }, (_, i) => 200 + i * 10));
+    assert.ok(Math.abs(nearby.nearestStraightLineDistanceMeters - 11.1195) < 0.001, 'nearest coordinate distance belongs to the twelfth routed stop');
+    assert.match(result.content[0].text, /12 nearby stops, nearest pedestrian-route distance 200 m, nearest straight-line distance 11 m/);
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
