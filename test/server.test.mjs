@@ -159,6 +159,23 @@ test('photo assessment host blocks retain the assessed original image bytes', as
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('photo assessment does not claim attached images when no host block is eligible', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-empty-host-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const reference = 'https://images.fake.test/oversized.png';
+  storage.upsertListing({ id: 'no-host-images', photos: [reference] });
+  const adapter = new FixtureAdapter({}, { photos: { [reference]: new Uint8Array(200_001) } });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'no-host-images' } });
+      assert.equal(result.content.filter(block => block.type === 'image').length, 0);
+      assert.match(result.content[0].text, /No image content was attached/);
+      assert.doesNotMatch(result.content[0].text, /Assess the attached image content/);
+      assert.ok(result.structuredContent.uncertainty.some(text => text.includes(reference) && text.includes('size exceeds 200,000 bytes')));
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('get_listing_photos reports unavailable listing as an explicit tool error', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-missing-'));
   const storage = openStorage(join(directory, 'test.db'));
