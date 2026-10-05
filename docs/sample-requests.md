@@ -76,3 +76,20 @@ Request: “Search for a house in Bankya up to €250,000, ideally with at least
 ```
 
 Treat the garden as a preference to verify in listing evidence; do not claim it is a filter unless the tool schema supports it. Check returned filter verification before presenting results.
+
+## Save a viewing note and watch a listing
+
+After inspecting a result, save a short private note and add it to the watchlist. Replace the fabricated example id with an id returned by search:
+
+```json
+{ "name": "save_note", "arguments": { "listingId": "1c100000000000001", "kind": "viewing", "text": "Ask whether the building has a lift." } }
+{ "name": "watch_listing", "arguments": { "listingId": "1c100000000000001", "watch": true } }
+```
+
+## Request a change digest
+
+List recent saved listing changes, optionally restricting the digest to an ISO-8601 timestamp and a maximum number of events:
+
+```json
+{ "name": "get_changes", "arguments": { "since": "2026-01-01T00:00:00Z", "limit": 20 } }
+```

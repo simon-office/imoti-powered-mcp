@@ -21,6 +21,30 @@ async function withClient(server, fn) {
   finally { await client.close(); await server.close(); }
 }
 
+test('search MCP schema uses validated environment collection defaults', async () => {
+  const previousResults = process.env.IMOTI_SEARCH_MAX_RESULTS;
+  const previousPages = process.env.IMOTI_SEARCH_MAX_PAGES;
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-search-config-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  process.env.IMOTI_SEARCH_MAX_RESULTS = '10';
+  process.env.IMOTI_SEARCH_MAX_PAGES = '2';
+  const server = createServer({ storage, adapter: new FixtureAdapter({}) });
+  try {
+    await withClient(server, async client => {
+      const tool = (await client.listTools()).tools.find(({ name }) => name === 'search_listings');
+      assert.equal(tool.inputSchema.properties.limit.default, 10);
+      assert.equal(tool.inputSchema.properties.criteria.properties.maxPages.default, 2);
+    });
+  } finally {
+    storage.close();
+    await rm(directory, { recursive: true, force: true });
+    if (previousResults === undefined) delete process.env.IMOTI_SEARCH_MAX_RESULTS;
+    else process.env.IMOTI_SEARCH_MAX_RESULTS = previousResults;
+    if (previousPages === undefined) delete process.env.IMOTI_SEARCH_MAX_PAGES;
+    else process.env.IMOTI_SEARCH_MAX_PAGES = previousPages;
+  }
+});
+
 test('area_context distinguishes unresolved coordinates from no stops within the requested radius', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-area-reasons-'));
   const storage = openStorage(join(directory, 'test.db'));

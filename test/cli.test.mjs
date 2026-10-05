@@ -4,13 +4,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { adapterPageLimit } from '../dist/cli-limits.js';
 
-const run = (args, dataDir) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', new URL('../dist/cli.js', import.meta.url).pathname, ...args], {
-  encoding: 'utf8', env: { ...process.env, IMOTI_DATA_DIR: dataDir },
+const run = (args, dataDir, extraEnv = {}) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', new URL('../dist/cli.js', import.meta.url).pathname, ...args], {
+  encoding: 'utf8', env: { ...process.env, IMOTI_DATA_DIR: dataDir, ...extraEnv },
 });
 
 const saveWatchedSearch = (dataDir, criteria) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.saveSearch({ id: 'cli-test-search', criteria: ${JSON.stringify(criteria)}, createdAt: new Date().toISOString() }); storage.close();`], { encoding: 'utf8' });
 const saveWatchedListing = (dataDir, listingId) => spawnSync(process.execPath, ['--input-type=module', '-e', `import { openStorage } from ${JSON.stringify(new URL('../dist/storage/index.js', import.meta.url).href)}; const storage = openStorage(${JSON.stringify(join(dataDir, 'imoti.db'))}); storage.watch(${JSON.stringify(listingId)}); storage.close();`], { encoding: 'utf8' });
+
+test('refresh adapter limit honors saved-search page limits independently of interactive defaults', () => {
+  assert.equal(adapterPageLimit('refresh', undefined), 20);
+  assert.equal(adapterPageLimit('search', 3), 3);
+});
 
 test('search command prints verification and persists structured results from fixtures', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
@@ -36,6 +42,31 @@ test('search supports rooms, max price, limit, and pages and prints seller kind 
     assert.equal(saved.query.criteria.rooms.min, 2);
     assert.equal(saved.query.criteria.priceMax, 250000);
     assert.equal(saved.query.criteria.maxPages, 2);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search environment limits apply as defaults and reject values over the documented bounds', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
+  try {
+    const fixtureDir = new URL('./fixtures', import.meta.url).pathname;
+    const result = run(['search', '--fixtures', fixtureDir], directory, { IMOTI_SEARCH_MAX_RESULTS: '10', IMOTI_SEARCH_MAX_PAGES: '2' });
+    assert.equal(result.status, 0, result.stderr);
+    const saved = JSON.parse(await readFile(join(directory, 'last-search.json'), 'utf8'));
+    assert.equal(saved.listings.length, 4);
+    assert.equal(saved.query.criteria.maxPages, 2);
+    const invalid = run(['search', '--fixtures', fixtureDir], directory, { IMOTI_SEARCH_MAX_RESULTS: '21' });
+    assert.equal(invalid.status, 2);
+    assert.match(invalid.stderr, /10 to 20/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('explicit page limit overrides the environment default', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-cli-'));
+  try {
+    const result = run(['search', '--fixtures', new URL('./fixtures', import.meta.url).pathname, '--max-pages', '3'], directory, { IMOTI_SEARCH_MAX_PAGES: '1' });
+    assert.equal(result.status, 0, result.stderr);
+    const saved = JSON.parse(await readFile(join(directory, 'last-search.json'), 'utf8'));
+    assert.equal(saved.query.criteria.maxPages, 3);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

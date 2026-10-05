@@ -1,5 +1,22 @@
 import { z } from 'zod';
 
+/** Site-search page bounds preserve the existing polite three-page cap. */
+export const DEFAULT_SEARCH_MAX_PAGES = 3;
+export const MAX_SEARCH_MAX_PAGES = 3;
+export const DEFAULT_SEARCH_MAX_RESULTS = 15;
+export const MIN_SEARCH_MAX_RESULTS = 10;
+export const MAX_SEARCH_MAX_RESULTS = 20;
+
+export function configuredSearchLimit(name: 'IMOTI_SEARCH_MAX_PAGES' | 'IMOTI_SEARCH_MAX_RESULTS', fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  const min = name === 'IMOTI_SEARCH_MAX_PAGES' ? 1 : MIN_SEARCH_MAX_RESULTS;
+  const max = name === 'IMOTI_SEARCH_MAX_PAGES' ? MAX_SEARCH_MAX_PAGES : MAX_SEARCH_MAX_RESULTS;
+  if (!Number.isInteger(value) || value < min || value > max) throw new RangeError(`${name} must be an integer from ${min} to ${max}`);
+  return value;
+}
+
 const boundsSchema = z.object({ min: z.number().positive().optional(), max: z.number().positive().optional() }).refine(({ min, max }) => min === undefined || max === undefined || min <= max, 'min must not exceed max');
 
 export const searchCriteriaSchema = z.object({
@@ -12,7 +29,7 @@ export const searchCriteriaSchema = z.object({
   priceMax: z.number().positive().optional(),
   areaMin: z.number().positive().optional(),
   areaMax: z.number().positive().optional(),
-  maxPages: z.number().int().min(1).max(3).default(3),
+  maxPages: z.number().int().min(1).max(MAX_SEARCH_MAX_PAGES).default(DEFAULT_SEARCH_MAX_PAGES),
 });
 
 export type SearchCriteria = z.infer<typeof searchCriteriaSchema>;

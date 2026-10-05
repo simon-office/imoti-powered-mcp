@@ -5,6 +5,7 @@ import { chromium, type BrowserContext } from 'playwright-core';
 import { ProtectiveScreenError, type ListingPhoto, type SiteAdapter, type SitePage } from './types.js';
 
 export const DEFAULT_MAX_PAGES = 20;
+export const MAX_MAX_PAGES = 20;
 export const MIN_REQUEST_DELAY_MS = 2000;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -38,6 +39,7 @@ export async function fetchPhotosWithLimit<T>(references: string[], fetchPhoto: 
 }
 
 export function assertPageCapacity(pagesFetched: number, maxPages = DEFAULT_MAX_PAGES): void {
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_MAX_PAGES) throw new RangeError(`maxPages must be an integer from 1 to ${MAX_MAX_PAGES}`);
   if (pagesFetched >= maxPages) throw new Error(`Page limit of ${maxPages} reached for this run`);
 }
 
@@ -60,6 +62,7 @@ export class PlaywrightAdapter implements SiteAdapter {
     this.dataDir = options.dataDir ?? process.env.IMOTI_DATA_DIR ?? join(homedir(), '.imoti-powered-mcp');
     this.delayMs = requestDelay(options.delayMs);
     this.maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
+    if (!Number.isInteger(this.maxPages) || this.maxPages < 1 || this.maxPages > MAX_MAX_PAGES) throw new RangeError(`maxPages must be an integer from 1 to ${MAX_MAX_PAGES}`);
   }
 
   async fetchPage(url: string): Promise<SitePage> {

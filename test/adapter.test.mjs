@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
-import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit } from '../dist/adapter/playwright.js';
+import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, PlaywrightAdapter } from '../dist/adapter/playwright.js';
 
 test('fixture adapter decodes windows-1251 bytes and records requested URLs', async () => {
   const adapter = new FixtureAdapter({ 'https://fake.test/search': new URL('./fixtures/search-windows-1251.html', import.meta.url) });
@@ -37,6 +37,12 @@ test('request delay and page capacity enforce their minimums and limits', () => 
   assert.equal(requestDelay(2500), 2500);
   assert.doesNotThrow(() => assertPageCapacity(19));
   assert.throws(() => assertPageCapacity(20), /20/);
+});
+
+test('browser page limit preserves 20-page default and rejects invalid configured bounds', () => {
+  assert.doesNotThrow(() => new PlaywrightAdapter());
+  for (const maxPages of [0, 21, 1.5]) assert.throws(() => new PlaywrightAdapter({ maxPages }), /maxPages/);
+  assert.doesNotThrow(() => new PlaywrightAdapter({ maxPages: 5 }));
 });
 
 test('photo references allow HTTPS imotstatic and cdn image hosts only', () => {

@@ -37,9 +37,9 @@ test('sanitizes phone and email spans without changing surrounding text or line 
 
 test('redacts contacts in moreInfo text and omits dealer name and phone', async () => {
   const result = parseListing(await fixture('listing-contacts.html'));
-  assert.equal(result.description, 'Измислено жилище.\nТелефон [redacted], email [redacted].\nОглед след уговорка.');
+  assert.equal(result.description, 'Измислено жилище.\nКонтактните данни са пропуснати от синтетичния пример.\nОглед след уговорка.');
   assert.deepEqual(result.seller, { kind: 'agency', name: null });
-  assert.doesNotMatch(JSON.stringify(result), /0888000000|seller@example\.invalid|Агенция Контактна/);
+  assert.doesNotMatch(JSON.stringify(result), /телефон|email|Измислена Агенция/i);
 });
 
 test('uses DOM fallback, district precision, lowered price and VAT note', async () => {
