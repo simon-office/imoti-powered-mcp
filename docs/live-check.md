@@ -1,5 +1,66 @@
 # Owner live check (stage 1)
 
+## Stage 4: release-candidate owner check
+
+Run from a clean checkout on Simon's machine. These checks have not yet been run by the owner; do not treat this procedure
+as evidence of a live result. Node 24+, npm, Claude Code and Chrome/Chromium are required for the applicable checks.
+
+### Clean install and local checks
+
+```sh
+npm ci --include=dev
+npm run build
+npm test
+claude plugin validate .
+claude --plugin-dir .
+```
+
+In Claude Code, confirm the plugin appears in `/mcp` as `plugin:imoti-powered-mcp:imoti` and that its
+`property-search` skill is available. Ask it to find a two-bedroom apartment in Sofia under €350,000 near the metro,
+then ask for a concise digest of changes for a saved search using `search-feedback-digest`. Check the tool output and
+skill guidance against the returned evidence; do not infer a result when the site returns no matches or a protective
+screen. If a challenge appears, stop automated access and continue manually in visible mode.
+
+### Stage 4 checks
+
+- Confirm search collection limits are configured as documented: `IMOTI_SEARCH_MAX_RESULTS` defaults to 15 and accepts
+  10–20; `IMOTI_SEARCH_MAX_PAGES` defaults to 3 and accepts 1–3. Verify an explicit CLI limit overrides its environment
+  default, and that the independent browser ceiling cannot exceed 20 pages.
+- Check Sofia data cache behavior using `area_context`: a current cached dataset is reused; for a stale cached dataset,
+  a refresh is attempted and the result reports refreshed or unavailable data accurately. Do not delete or share private
+  cache files to manufacture a result.
+- Use a listing whose coordinates are unavailable and confirm the response explicitly explains that coordinates are
+  unavailable, rather than claiming a distance or silently using an imprecise location.
+- Review [`limitations.md`](limitations.md) and [`site-permissions.md`](site-permissions.md). Confirm the documented
+  precision/uncertainty boundaries and Simon's unresolved site-access and image-use permission decisions. The live check
+  does not resolve those decisions or grant permission.
+- Never share credentials, photos, exact addresses or raw user data.
+
+### Owner report (fill only after running)
+
+No result is pre-filled. Record Node version, OS, browser and Claude Code/runtime version; exact commands and tool calls;
+redacted outcomes; errors; and provider cases not checked. Mark each check pass/fail/not checked and describe only
+redacted evidence. Do not include credentials, photos, exact addresses, listing page dumps, database/cache contents or
+raw user data.
+
+| Check | Outcome (pass/fail/not checked) | Redacted evidence / error |
+|---|---|---|
+| Clean install/build/test | | |
+| `claude plugin validate .` | | |
+| Plugin loading and `/mcp` tool | | |
+| `search-feedback-digest` workflow | | |
+| Configured collection limits | | |
+| Current/stale Sofia cache behavior | | |
+| No-coordinate explanation | | |
+| Limitations and permission decision points | | |
+| Provider cases not checked | | |
+
+**Runtime:** Node ___; OS ___; browser ___; Claude Code/runtime ___; date/time ___
+**Commands/tool calls:** ___
+**Redacted outcomes and errors:** ___
+**Provider cases not checked and why:** ___
+**Owner decision / remaining release actions:** ___
+
 Build the project, then run searches on the owner's machine with a normal browser available:
 
 ```sh

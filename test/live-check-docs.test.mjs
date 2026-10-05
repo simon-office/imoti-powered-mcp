@@ -76,11 +76,35 @@ test('live-check documents stage 2 event expectations and safe reporting', async
   assert.match(doc, /Do not include credentials, tokens, personal data[\s\S]*?photos, copied\s+listing pages, page dumps/i);
 });
 
-test('README reports stage 3 in development and documents local refresh', async () => {
+test('README reports stage 4 prepared and documents local refresh', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 3 photo\/location assessment, in development/i);
+  assert.match(readme, /Status: stage 4 prepared; Simon's owner live check and release decision pending/i);
   assert.match(readme, /owner live check/i);
   assert.match(readme, /npm run refresh --/);
+});
+
+test('stage 4 owner check documents reproducible commands, criteria, reporting, and Simon hand-off', async () => {
+  const doc = await read('docs/live-check.md');
+  const readme = await read('README.md');
+  for (const command of ['npm ci --include=dev', 'npm run build', 'npm test', 'claude plugin validate .', 'claude --plugin-dir .']) {
+    assert.ok(doc.includes(command), `missing live-check command: ${command}`);
+  }
+  for (const phrase of [
+    /search-feedback-digest/i,
+    /IMOTI_SEARCH_MAX_RESULTS[\s\S]*?10–20[\s\S]*?IMOTI_SEARCH_MAX_PAGES[\s\S]*?1–3/,
+    /current cached dataset[\s\S]*?stale cached dataset/i,
+    /coordinates are unavailable/i,
+    /limitations\.md[\s\S]*?site-permissions\.md/i,
+    /Never share credentials, photos, exact addresses or raw user data/i,
+    /Node version, OS, browser and Claude Code\/runtime version/i,
+    /Provider cases not checked/,
+    /do not treat this procedure\s+as evidence of a live result/i,
+  ]) assert.match(doc, phrase);
+  for (const phrase of [
+    /run the owner live check and `claude plugin validate \.` on his machine/i,
+    /resolve[\s\S]*?site-access and image-use permission decisions/i,
+    /choose the release version, tag it, and publish the GitHub\s+release/i,
+  ]) assert.match(readme, phrase);
 });
 
 test('stage 3 owner workflow checks location provenance and complete bounded photo inventory', async () => {
