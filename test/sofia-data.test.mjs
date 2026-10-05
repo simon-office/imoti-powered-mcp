@@ -55,6 +55,36 @@ test('invalid cached GTFS is refreshed and a failed refresh preserves valid prov
   assert.equal(cached, 'bad-again');
 });
 
+test('local adapter loads and caches both municipal location datasets with their distinct reuse terms', async () => {
+  const cacheValues = new Map();
+  const writes = [];
+  const cache = {
+    read: async key => cacheValues.get(key),
+    write: async (key, value) => { writes.push(key); cacheValues.set(key, value); }
+  };
+  const adapter = new LocalSofiaDataAdapter({
+    cache,
+    now: () => new Date('2026-10-06T12:00:00.000Z'),
+    fetchMunicipalData: async () => ({
+      addressesZip: new ArrayBuffer(0),
+      districtsText: JSON.stringify({ type: 'FeatureCollection', features: [
+        { type: 'Feature', properties: { kvname: 'КВ. ПРИМЕР' }, geometry: { type: 'MultiPolygon', coordinates: [[[[23, 42], [24, 42], [24, 43], [23, 42]]]] } }
+      ] })
+    }),
+    unzipAddresses: async () => 'rn;region;settlement;lareaunit;block;street;streetnum;entrance;n;e\n1;A;гр. София;;;ул. Примерна;;;42.5;23.5'
+  });
+  const first = await adapter.getMunicipalLocations();
+  const second = await new LocalSofiaDataAdapter({ cache, fetchMunicipalData: async () => { throw new Error('must use cache'); } }).getMunicipalLocations();
+  assert.deepEqual(second, first);
+  assert.deepEqual(writes.sort(), ['sofia-addresses.json', 'sofia-districts.json']);
+  assert.equal(first.addresses[0].latitude, 42.5);
+  assert.equal(first.addresses[0].longitude, 23.5);
+  assert.ok(Math.abs(first.districts[0].latitude - 42.3333333333) < 0.000001);
+  assert.ok(Math.abs(first.districts[0].longitude - 23.6666666667) < 0.000001);
+  assert.equal(first.addresses[0].provenance.reuseTerms, 'CC-BY');
+  assert.match(first.districts[0].provenance.reuseTerms, /Не са зададени лицензни права/);
+});
+
 test('local server construction passes the real local adapter to createServer', () => {
   let dependencies;
   const expectedServer = {};

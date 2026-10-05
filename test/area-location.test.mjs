@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveListingLocation } from '../dist/area/location.js';
+import { resolveMunicipalLocation } from '../dist/area/location.js';
 import { Client, InMemoryTransport as ClientTransport } from '@modelcontextprotocol/client';
 import { InMemoryTransport as ServerTransport } from '@modelcontextprotocol/server';
 import { createServer } from '../dist/server.js';
@@ -34,6 +35,78 @@ test('classifies a property-specific street without a district as street precisi
   const result = resolveListingLocation({ id: 'street-only', location: { city: 'Sofia', street: 'ул. Измислена 12' } });
   assert.equal(result.precision, 'street');
   assert.equal(result.street, 'ул. Измислена 12');
+});
+
+test('resolves streets and neighbourhoods from synthetic municipal datasets with provenance and uncertainty', () => {
+  const addressProvenance = { name: 'Адреси на територията на Столична община', sourceUrl: 'https://fixture.test/addresses', datasetDate: '2026-09-15', checkedAt: '2026-10-05', reuseTerms: 'CC-BY' };
+  const districtProvenance = { name: 'Квартали на Столична община', sourceUrl: 'https://fixture.test/districts', datasetDate: 'unknown', checkedAt: '2026-10-05', reuseTerms: 'Не са зададени лицензни права' };
+  const datasets = {
+    addresses: [
+      { settlement: 'гр. София', street: 'ул. Измислена', region: 'А', latitude: 42.7, longitude: 23.3, provenance: addressProvenance },
+      { settlement: 'гр. София', street: 'ул. Измислена', region: 'Б', latitude: 42.71, longitude: 23.31, provenance: addressProvenance },
+    ],
+    districts: [
+      { name: 'КВ. ПРИМЕР', latitude: 42.72, longitude: 23.32, provenance: districtProvenance },
+      { name: 'В.З. ПРИМЕР', latitude: 42.9, longitude: 23.5, provenance: districtProvenance },
+    ],
+  };
+  const street = resolveMunicipalLocation({ id: 'street', location: { city: 'Sofia', street: 'ул. Измислена' } }, datasets);
+  assert.equal(street.precision, 'street');
+  assert.equal(street.coordinates.latitude, 42.705);
+  assert.match(street.uncertainty.join(' '), /administrative district|region/i);
+  assert.equal(street.source, addressProvenance.name);
+  const district = resolveMunicipalLocation({ id: 'district', location: { city: 'Sofia', district: 'Пример' } }, datasets);
+  assert.equal(district.precision, 'neighbourhood');
+  assert.equal(district.coordinates.latitude, 42.72);
+  assert.equal(district.source, districtProvenance.name);
+  const unresolved = resolveMunicipalLocation({ id: 'ambiguous', location: { city: 'Sofia', street: 'ул. Непозната' }, seller: { location: 'ул. Измислена' } }, datasets);
+  assert.equal(unresolved.coordinates, undefined);
+  assert.equal(unresolved.precision, 'unknown');
+});
+
+test('area_context uses straight-line stop distances when routes are absent', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-straight-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'straight-property', location: { city: 'Sofia', district: 'Iztok', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const provenance = { name: 'Synthetic GTFS', sourceUrl: 'https://fixture.test/gtfs', datasetDate: 'synthetic-2026-01-01', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const adapter = new FixtureSofiaDataAdapter({ stops: [
+    { id: 'far', name: 'Imaginary Far', latitude: 42.705, longitude: 23.3, provenance },
+    { id: 'near', name: 'Imaginary Near', latitude: 42.701, longitude: 23.3, provenance },
+  ] });
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-straight-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'straight-property', radiusMeters: 1000 } });
+    const stops = result.structuredContent.nearbyStops;
+    assert.equal(stops.distanceType, 'straight-line');
+    assert.deepEqual(stops.items.map(item => item.id), ['near', 'far']);
+    assert.ok(stops.items.every(item => typeof item.distanceMeters === 'number' && item.provenance.sourceUrl === provenance.sourceUrl));
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context resolves a stored street from adapter municipal data before measuring nearby stops', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-municipal-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'municipal-property', location: { city: 'Sofia', street: 'ул. Измислена', precision: 'street' }, seller: { location: 'ул. Агенцийна 99' } });
+  const provenance = { name: 'Synthetic address data', sourceUrl: 'https://fixture.test/addresses', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const stopProvenance = { name: 'Synthetic GTFS', sourceUrl: 'https://fixture.test/gtfs', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const adapter = new FixtureSofiaDataAdapter({
+    locations: { addresses: [{ settlement: 'гр. София', street: 'ул. Измислена', region: 'A', latitude: 42.7, longitude: 23.3, provenance }], districts: [] },
+    stops: [{ id: 'municipal-stop', name: 'Imaginary Stop', latitude: 42.701, longitude: 23.3, provenance: stopProvenance }]
+  });
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-municipal-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'municipal-property', radiusMeters: 1000 } });
+    assert.deepEqual(result.structuredContent.location.coordinates, { latitude: 42.7, longitude: 23.3 });
+    assert.equal(result.structuredContent.location.provenance.sourceUrl, provenance.sourceUrl);
+    assert.equal(result.structuredContent.nearbyStops.items[0].distanceType, 'straight-line');
+    assert.equal(result.structuredContent.nearbyStops.items[0].provenance.sourceUrl, stopProvenance.sourceUrl);
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('exact precision requires property-specific coordinate evidence', () => {

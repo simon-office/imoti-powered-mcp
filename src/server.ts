@@ -12,7 +12,7 @@ import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
 import { resolveDistrict } from './search/slugs.js';
 import type { SofiaDataAdapter } from './adapter/sofia-data.js';
-import { resolveListingLocation } from './area/location.js';
+import { resolveListingLocation, resolveMunicipalLocation } from './area/location.js';
 import type { NormalizedStop, NormalizedSchedule, NormalizedMunicipalFeature, NormalizedWalkingRoute } from './area/types.js';
 import { assessListingPhotos, configuredPhotoAssessmentOptions, type PhotoAssessmentOptions } from './photos/assessment.js';
 
@@ -168,10 +168,10 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       try {
         const listing = storage.getListing(listingId);
         if (!listing) return { isError: true, content: [{ type: 'text' as const, text: `Listing ${listingId} was not found in local storage.` }] };
-        const location = resolveListingLocation(listing);
-        const [stops, schedules, features, routes] = areaData
-          ? await Promise.all([areaData.getStops(), areaData.getSchedules(), areaData.getMunicipalFeatures(), areaData.getWalkingRoutes()])
-          : [[], [], [], []] as [NormalizedStop[], NormalizedSchedule[], NormalizedMunicipalFeature[], NormalizedWalkingRoute[]];
+        const [stops, schedules, features, routes, municipalLocations] = areaData
+          ? await Promise.all([areaData.getStops(), areaData.getSchedules(), areaData.getMunicipalFeatures(), areaData.getWalkingRoutes(), areaData.getMunicipalLocations()])
+          : [[], [], [], [], { addresses: [], districts: [] }] as [NormalizedStop[], NormalizedSchedule[], NormalizedMunicipalFeature[], NormalizedWalkingRoute[], { addresses: []; districts: [] }];
+        const location = resolveMunicipalLocation(listing, municipalLocations);
         const uncertainty = [...location.uncertainty];
         const findRoute = (destination: string) => routes.find(route => route.origin === listingId && route.destination === destination);
         const routedStops = location.coordinates ? stops.flatMap((stop: NormalizedStop) => {
@@ -184,11 +184,18 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         }) : [];
         const stopsAvailable = location.coordinates !== undefined && routes.some(route => route.origin === listingId && stops.some(stop => stop.id === route.destination));
         const featuresAvailable = location.coordinates !== undefined && routes.some(route => route.origin === listingId && features.some(feature => feature.id === route.destination));
-        const nearbyStops = stopsAvailable ? { status: 'available', items: routedStops, provenance: routedStops.map(item => ({ stop: item.provenance, routing: item.routingProvenance })) } : { status: 'unavailable', reason: `No property-specific routed stop distances are available for this location.`, provenance: stops.map(item => item.provenance) };
+        const straightStops = location.coordinates && !stopsAvailable ? stops.flatMap(stop => {
+          const distanceMeters = haversineMeters(location.coordinates!, stop.latitude, stop.longitude);
+          return distanceMeters <= radiusMeters ? [{ ...stop, distanceMeters, distanceType: 'straight-line' as const }] : [];
+        }).sort((a, b) => a.distanceMeters - b.distanceMeters) : [];
+        const nearbyStops = stopsAvailable ? { status: 'available', distanceType: 'pedestrian-route', items: routedStops, provenance: routedStops.map(item => ({ stop: item.provenance, routing: item.routingProvenance })) }
+          : straightStops.length ? { status: 'available', distanceType: 'straight-line', items: straightStops, provenance: straightStops.map(item => item.provenance) }
+          : { status: 'unavailable', reason: `No stop coordinates are available within the radius for this location.`, provenance: stops.map(item => item.provenance) };
         const municipalFeatures = featuresAvailable ? { status: 'available', items: routedFeatures, provenance: routedFeatures.map(item => ({ feature: item.provenance, routing: item.routingProvenance })) } : { status: 'unavailable', reason: `No property-specific routed municipal feature distances are available for this location.`, provenance: features.map(item => item.provenance) };
         const stopIds = stopsAvailable ? new Set(routedStops.map(stop => stop.id)) : new Set<string>();
         const relevantSchedules = schedules.filter((schedule: NormalizedSchedule) => stopIds.has(schedule.stopId));
-        if (!stopsAvailable) uncertainty.push('Nearby stops and schedules are unavailable because property-specific routed distances are not established.');
+        if (!stopsAvailable && !straightStops.length) uncertainty.push('Nearby stops and schedules are unavailable because location coordinates or stops are not established.');
+        else if (!stopsAvailable) uncertainty.push('Nearby stop distances are straight-line estimates and do not represent walking routes.');
         const result = { listingId, location, nearbyStops, schedules: stopsAvailable ? { status: 'available', items: relevantSchedules, provenance: relevantSchedules.map(item => item.provenance) } : { status: 'unavailable', reason: 'Schedules unavailable because nearby stops cannot be established.', provenance: schedules.map(item => item.provenance) }, municipalFeatures, sourceMetadata: { stops: stops.map(item => item.provenance), schedules: schedules.map(item => item.provenance), municipalFeatures: features.map(item => item.provenance), routing: routes.map(item => item.provenance) }, uncertainty };
         return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${stopsAvailable ? `${routedStops.length} routed stops` : 'nearby transit unavailable'}; ${featuresAvailable ? `${routedFeatures.length} routed features` : 'nearby features unavailable'}.` }] };
       } catch (error) { return toolError(error); }
@@ -409,6 +416,13 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
   }
 
   return server;
+}
+
+function haversineMeters(origin: { latitude: number; longitude: number }, latitude: number, longitude: number): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const dLat = radians(latitude - origin.latitude), dLon = radians(longitude - origin.longitude);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(origin.latitude)) * Math.cos(radians(latitude)) * Math.sin(dLon / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function isDetailObservation(sourceUrl: string): boolean {
