@@ -86,13 +86,14 @@ test('averages only same-street address points inside the listing district polyg
   const result = resolveMunicipalLocation({ id: 'long-street', location: { city: 'Sofia', district: 'Пример', street: 'ул. Дълга' } }, {
     addresses: [
       { settlement: 'гр. София', street: 'ул. Дълга', region: 'A', latitude: 42.1, longitude: 23.1, provenance },
+      { settlement: 'гр. София', street: 'ул. Дълга', region: 'A', latitude: 42.2, longitude: 23.2, provenance },
       { settlement: 'гр. София', street: 'ул. Дълга', region: 'B', latitude: 43, longitude: 24, provenance },
       { settlement: 'гр. София', street: 'ул. Друга', region: 'A', latitude: 42.2, longitude: 23.2, provenance },
     ],
     districts: [{ name: 'КВ. ПРИМЕР', latitude: 42.15, longitude: 23.15, geometry: { type: 'MultiPolygon', coordinates: [[[[23, 42], [23.5, 42], [23.5, 42.5], [23, 42.5], [23, 42]]]] }, provenance }],
   });
-  assert.deepEqual(result.coordinates, { latitude: 42.1, longitude: 23.1 });
-  assert.match(result.uncertainty.join(' '), /farthest.*\d+ m/i);
+  assert.deepEqual(result.coordinates, { latitude: (42.1 + 42.2) / 2, longitude: (23.1 + 23.2) / 2 });
+  assert.match(result.uncertainty.join(' '), /Farthest selected point is 6922 m from the resolved point\./);
   assert.doesNotMatch(result.uncertainty.join(' '), /multiple administrative/i);
 });
 
