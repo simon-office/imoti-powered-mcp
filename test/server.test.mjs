@@ -171,6 +171,71 @@ test('get_listing_photos reports unavailable listing as an explicit tool error',
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('compare_listings returns stored evidence and bounded asking-price sample metadata', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'compare-a', price: { amount: 200000, currency: 'EUR' }, area: 100, photos: ['fake-photo'], photoAssessment: { findings: ['bright room'], uncertainty: ['limited view'] }, location: { city: 'Fake City', district: 'North', precision: 'neighbourhood' } }, '2026-02-01T00:00:00.000Z');
+  storage.upsertListing({ id: 'compare-b', price: { amount: 300000, currency: 'EUR' }, area: 120, location: { district: 'South', precision: 'street', street: 'Fake Street' } }, '2026-02-10T00:00:00.000Z');
+  storage.upsertListing({ id: 'compare-c', price: { amount: 900000, currency: 'USD' }, area: 90 }, '2026-03-01T00:00:00.000Z');
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['compare-a', 'compare-b'] } });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      const { listings, askingPricePositioning } = result.structuredContent;
+      assert.equal(listings.length, 2);
+      assert.deepEqual(listings[0].price, { amount: 200000, currency: 'EUR' });
+      assert.deepEqual(listings[0].pricePerSquareMeter, { amount: 2000, currency: 'EUR' });
+      assert.deepEqual(listings[0].photoAssessment, { findings: ['bright room'], uncertainty: ['limited view'] });
+      assert.equal(listings[0].location.precision, 'neighbourhood');
+      assert.ok(listings[0].uncertainty.length);
+      assert.equal(listings[1].photoAssessment, null);
+      assert.ok(listings[1].explanations.photoAssessment);
+      assert.deepEqual(askingPricePositioning, { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: 2, currency: 'EUR', period: { from: '2026-02-01T00:00:00.000Z', to: '2026-02-10T00:00:00.000Z' }, minimum: 200000, median: 250000, maximum: 300000 });
+      assert.match(askingPricePositioning.basis, /not completed sales/);
+      assert.equal(JSON.stringify(result).toLowerCase().includes('hidden defect'), false);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('compare_listings rejects fewer than two, more than ten, and duplicate IDs', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-invalid-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  try {
+    await withClient(createServer({ storage }), async client => {
+      for (const listingIds of [['a'], Array.from({ length: 11 }, (_, i) => String(i)), ['a', 'a']]) {
+        const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds } });
+        assert.equal(result.isError, true);
+      }
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('compare_listings explains absent evidence and does not mix currencies in positioning', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-missing-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'usd-listing', price: { amount: 120000, currency: 'USD' } }, '2026-04-01T00:00:00.000Z');
+  storage.upsertListing({ id: 'eur-listing', price: { amount: 100000, currency: 'EUR' } }, '2026-04-02T00:00:00.000Z');
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['usd-listing', 'eur-listing', 'not-stored'] } });
+      const [usd, eur, missing] = result.structuredContent.listings;
+      assert.equal(usd.areaM2, null);
+      assert.equal(usd.pricePerSquareMeter, null);
+      assert.ok(usd.explanations.areaM2);
+      assert.deepEqual(usd.price, { amount: 120000, currency: 'USD' });
+      assert.deepEqual(eur.price, { amount: 100000, currency: 'EUR' });
+      assert.equal(missing.price, null);
+      assert.ok(missing.explanations.price);
+      assert.equal(result.structuredContent.askingPricePositioning.sampleSize, 2);
+      assert.equal(result.structuredContent.askingPricePositioning.currency, null);
+      assert.equal(result.structuredContent.askingPricePositioning.period.from, '2026-04-01T00:00:00.000Z');
+      assert.equal(result.structuredContent.askingPricePositioning.period.to, '2026-04-02T00:00:00.000Z');
+      assert.equal(result.structuredContent.askingPricePositioning.minimum, null);
+      assert.match(result.structuredContent.askingPricePositioning.basis, /period covers supplied observations with available timestamps/);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('memory tools persist notes, independent saved searches, and listing watches', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));

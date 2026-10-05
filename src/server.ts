@@ -109,6 +109,52 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         return { structuredContent: result, content: [{ type: 'text' as const, text: `${watch ? 'Watching' : 'Stopped watching'} listing ${listingId}.` }] };
       } catch (error) { return toolError(error); }
     });
+    server.registerTool('compare_listings', {
+      description: 'Compare 2–10 locally stored listings using observed asking prices and evidence. Asking-price positioning is only this supplied sample, not completed sales or market-wide valuation.',
+      inputSchema: { listingIds: z.array(z.string().min(1)).min(2).max(10).refine(ids => new Set(ids).size === ids.length, 'listingIds must be unique') },
+      outputSchema: z.object({
+        listings: z.array(z.object({ id: z.string(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
+        askingPricePositioning: z.unknown(),
+      }),
+    }, async ({ listingIds }) => {
+      try {
+        const listings = listingIds.map(id => {
+          const stored = storage.getListing(id);
+          const explanations: Record<string, string> = {};
+          const price = stored?.price && typeof stored.price === 'object' ? stored.price as { amount?: unknown; currency?: unknown } : null;
+          const amount = typeof price?.amount === 'number' && Number.isFinite(price.amount) && price.amount >= 0 ? price.amount : null;
+          const currency = typeof price?.currency === 'string' && price.currency.trim() ? price.currency : null;
+          const area = typeof stored?.areaM2 === 'number' ? stored.areaM2 : typeof stored?.area === 'number' ? stored.area : null;
+          const validArea = area !== null && Number.isFinite(area) && area > 0;
+          const perM2 = amount !== null && currency && validArea ? { amount: amount / area!, currency } : null;
+          if (!stored) for (const field of ['price', 'areaM2', 'pricePerSquareMeter', 'photoAssessment', 'location']) explanations[field] = 'Listing is not present in local storage.';
+          else {
+            if (amount === null || !currency) explanations.price = 'A valid asking price and currency were not observed.';
+            if (!validArea) explanations.areaM2 = 'A valid area in square metres was not observed.';
+            if (!perM2) explanations.pricePerSquareMeter = 'Requires a valid asking price, currency, and area in square metres.';
+            if (stored.photoAssessment === undefined && stored.photo_assessment === undefined) explanations.photoAssessment = 'No photo assessment is stored.';
+            if (!stored.location) explanations.location = 'No location evidence is stored.';
+          }
+          const location = stored ? resolveListingLocation(stored) : { city: null, district: null, street: null, precision: 'unknown', source: 'unavailable', uncertainty: ['Listing is not present in local storage.'] };
+          const photoAssessment = stored?.photoAssessment ?? stored?.photo_assessment ?? null;
+          const uncertainty = [...location.uncertainty];
+          if (!photoAssessment) uncertainty.push('Photo assessment is unavailable; no photo condition conclusions can be drawn.');
+          if (amount === null || !currency) uncertainty.push('Asking price or currency is unavailable.');
+          if (!validArea) uncertainty.push('Area in square metres is unavailable.');
+          return { id, price: amount === null || !currency ? null : { amount, currency }, areaM2: validArea ? area : null, pricePerSquareMeter: perM2, photoAssessment, location, uncertainty, observedAt: stored?.lastObservedAt ?? null, explanations };
+        });
+        const amounts = listings.flatMap(item => item.price ? [item.price as {amount:number;currency:string}] : []);
+        const currency = amounts.length && amounts.every(item => item.currency === amounts[0].currency) ? amounts[0].currency : null;
+        const dates = listings.flatMap(item => item.price && item.observedAt ? [item.observedAt] : []).sort();
+        let positioning: unknown = { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: amounts.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: null, median: null, maximum: null };
+        if (currency && amounts.length) {
+          const sorted = amounts.map(item => item.amount).sort((a,b) => a-b);
+          const middle = Math.floor(sorted.length / 2);
+          positioning = { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: amounts.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: sorted[0], median: sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2, maximum: sorted.at(-1) };
+        }
+        return { structuredContent: { listings, askingPricePositioning: positioning }, content: [{ type: 'text' as const, text: `Compared ${listings.length} stored listings. Asking-price positioning covers ${amounts.length} valid supplied price observation(s); aggregate statistics are available only for one currency. The period covers supplied observations with available timestamps; these are not completed sales or market-wide valuation.` }] };
+      } catch (error) { return toolError(error); }
+    });
   }
 
   if (deps.storage) {
