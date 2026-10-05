@@ -107,7 +107,8 @@ test('get_listing_photos returns ordered bounded metadata and does not persist i
       assert.equal(Object.hasOwn(result.structuredContent.photos[0], 'bytes'), false);
       assert.equal(result.structuredContent.photos[1].unavailableReason, 'Generated fixture image unavailable.');
       assert.ok(result.structuredContent.photos.every(photo => photo.mediaType.startsWith('image/')));
-      assert.deepEqual(result.structuredContent.uncertainty, [`Photo ${references[1]}: Generated fixture image unavailable.`]);
+      assert.ok(result.structuredContent.uncertainty.includes(`Photo ${references[1]}: Generated fixture image unavailable.`));
+      assert.ok(result.structuredContent.uncertainty.some(item => item.includes('coverage is incomplete')));
     });
     assert.deepEqual(storage.getListing(listingId).photos, references, 'stored listing retains only the references');
     assert.equal(Object.hasOwn(storage.getListing(listingId), 'bytes'), false);
