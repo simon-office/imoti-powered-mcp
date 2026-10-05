@@ -19,13 +19,25 @@ test('fixture Sofia adapter returns normalized records with source provenance', 
   assert.equal(route.provenance.sourceUrl, 'https://fixture.test/transit');
 });
 
+test('fixture adapter normalizes GTFS-shaped stop fields and numeric coordinates', async () => {
+  const provenance = { name: 'Invented GTFS fixture', sourceUrl: 'https://fixture.test/gtfs', datasetDate: 'synthetic', checkedAt: '2026-10-05', reuseTerms: 'Synthetic test data' };
+  const adapter = new FixtureSofiaDataAdapter({
+    stops: [{ stop_id: 'fake-stop-9', stop_name: 'Imaginary Library', stop_lat: '42.701', stop_lon: '23.321', provenance }]
+  });
+
+  assert.deepEqual(await adapter.getStops(), [{
+    id: 'fake-stop-9', name: 'Imaginary Library', latitude: 42.701, longitude: 23.321, provenance
+  }]);
+});
+
 test('data source documentation separates verified facts from unknown dataset dates and reuse terms', async () => {
   const doc = await readFile(new URL('../docs/data-sources.md', import.meta.url), 'utf8');
   assert.match(doc, /GTFS/i);
   assert.match(doc, /OpenStreetMap/i);
   assert.match(doc, /OSRM/i);
   assert.match(doc, /2026-10-05/);
-  assert.match(doc, /No GTFS-specific licence verified/);
+  assert.match(doc, /no feed-specific licence or reuse grant could be verified/i);
+  assert.match(doc, /Dataset date: unknown/);
   assert.match(doc, /Sourced facts versus inference/);
   assert.match(doc, /never downloads/);
 });
