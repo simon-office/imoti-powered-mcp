@@ -5,8 +5,11 @@ import { VERSION } from '../src/version.ts';
 
 test('VERSION matches the package version', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const packageLock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
   const pluginJson = JSON.parse(await readFile(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8'));
   assert.equal(VERSION, packageJson.version);
+  assert.equal(packageLock.version, packageJson.version);
+  assert.equal(packageLock.packages[''].version, packageJson.version);
   assert.equal(pluginJson.version, packageJson.version);
 });
 
