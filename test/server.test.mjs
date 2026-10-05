@@ -11,6 +11,7 @@ import { createServer } from '../dist/server.js';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
 import { openStorage } from '../dist/storage/index.js';
+import { FixtureSofiaDataAdapter } from '../dist/adapter/sofia-data.js';
 
 async function withClient(server, fn) {
   const client = new Client({ name: 'test-client', version: '1.0.0' });
@@ -19,6 +20,27 @@ async function withClient(server, fn) {
   try { await fn(client); }
   finally { await client.close(); await server.close(); }
 }
+
+test('area_context distinguishes unresolved coordinates from no stops within the requested radius', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-reasons-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const provenance = { name: 'Synthetic transit', sourceUrl: 'https://fixture.test/transit', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  storage.upsertListing({ id: 'unknown-location', location: { city: 'Sofia', precision: 'unknown' } });
+  storage.upsertListing({ id: 'located-property', location: { city: 'Sofia', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true, source: 'synthetic-property-geocode' } });
+  const sofiaData = new FixtureSofiaDataAdapter({ stops: [{ id: 'distant-fixture-stop', name: 'Imaginary Distant Stop', latitude: 42.8, longitude: 23.3, provenance }] });
+  try {
+    await withClient(createServer({ storage, sofiaData }), async client => {
+      const unresolved = await client.callTool({ name: 'area_context', arguments: { listingId: 'unknown-location', radiusMeters: 100 } });
+      assert.equal(unresolved.structuredContent.nearbyStops.status, 'unavailable');
+      assert.match(unresolved.structuredContent.nearbyStops.reason, /listing location.*no coordinates/i);
+      assert.doesNotMatch(unresolved.structuredContent.nearbyStops.reason, /within the radius/i);
+
+      const outsideRadius = await client.callTool({ name: 'area_context', arguments: { listingId: 'located-property', radiusMeters: 100 } });
+      assert.equal(outsideRadius.structuredContent.nearbyStops.status, 'unavailable');
+      assert.match(outsideRadius.structuredContent.nearbyStops.reason, /within the radius/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
 
 test('search_listings reports filter mismatches, client-filters results, and persists observations', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
