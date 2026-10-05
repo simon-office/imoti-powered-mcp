@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'playwright-core';
-import { ProtectiveScreenError, type SiteAdapter, type SitePage } from './types.js';
+import { ProtectiveScreenError, type ListingPhoto, type SiteAdapter, type SitePage } from './types.js';
 
 export const DEFAULT_MAX_PAGES = 20;
 export const MIN_REQUEST_DELAY_MS = 2000;
@@ -14,6 +14,15 @@ export function hasProtectiveScreen(status: number, title: string, body: string)
 
 export function requestDelay(configured = MIN_REQUEST_DELAY_MS): number {
   return Math.max(MIN_REQUEST_DELAY_MS, configured);
+}
+
+export function isAllowedPhotoReference(reference: string): boolean {
+  try {
+    const url = new URL(reference);
+    return url.protocol === 'https:' && url.username === '' && url.password === '' && url.port === '' && /^imotstatic\d+\.focus\.bg$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function assertPageCapacity(pagesFetched: number, maxPages = DEFAULT_MAX_PAGES): void {
@@ -61,6 +70,22 @@ export class PlaywrightAdapter implements SiteAdapter {
     } finally {
       await page.close();
     }
+  }
+
+  async getListingPhotos(listingId: string, references: string[]): Promise<ListingPhoto[]> {
+    const context = await this.getContext();
+    return Promise.all(references.map(async reference => {
+      try {
+        if (!isAllowedPhotoReference(reference)) {
+          return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: 'Photo reference is not an allowed HTTPS image host.' };
+        }
+        const response = await context.request.get(reference, { maxRedirects: 0 });
+        if (!response.ok()) return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', unavailableReason: `Image request returned HTTP ${response.status()}.` };
+        return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', bytes: await response.body() };
+      } catch (error) {
+        return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: error instanceof Error ? error.message : 'Image could not be retrieved.' };
+      }
+    }));
   }
 
   async close(): Promise<void> {

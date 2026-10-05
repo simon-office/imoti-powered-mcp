@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { ProtectiveScreenError, type SiteAdapter, type SitePage } from './types.js';
+import { ProtectiveScreenError, type ListingPhoto, type SiteAdapter, type SitePage } from './types.js';
 import { hasProtectiveScreen } from './playwright.js';
 
 export type FixtureSource = string | URL;
@@ -9,10 +9,18 @@ export class FixtureAdapter implements SiteAdapter {
   readonly requests: string[] = [];
   private readonly mappings: Array<[string | RegExp, FixtureSource]>;
 
-  constructor(mapping: FixtureMapping, private readonly options: { detectProtectiveScreen?: boolean } = {}) {
+  constructor(mapping: FixtureMapping, private readonly options: { detectProtectiveScreen?: boolean; photos?: Record<string, Uint8Array | Error> } = {}) {
     this.mappings = Array.isArray(mapping)
       ? mapping
       : Object.entries(mapping);
+  }
+
+  async getListingPhotos(listingId: string, references: string[]): Promise<ListingPhoto[]> {
+    return references.map(reference => {
+      const fixture = this.options.photos?.[reference];
+      if (fixture instanceof Error) return { listingId, reference, mediaType: mediaTypeFor(reference), unavailableReason: fixture.message };
+      return { listingId, reference, mediaType: mediaTypeFor(reference), bytes: fixture ?? new TextEncoder().encode(`generated fixture bytes for ${reference}`) };
+    });
   }
 
   async fetchPage(url: string): Promise<SitePage> {
@@ -31,4 +39,9 @@ export class FixtureAdapter implements SiteAdapter {
   }
 
   async close(): Promise<void> {}
+}
+
+function mediaTypeFor(reference: string): string {
+  const path = reference.split(/[?#]/, 1)[0].toLowerCase();
+  return path.endsWith('.png') ? 'image/png' : path.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
 }
