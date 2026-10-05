@@ -8,6 +8,7 @@ import test from 'node:test';
 import { Client, InMemoryTransport as ClientTransport } from '@modelcontextprotocol/client';
 import { InMemoryTransport as ServerTransport } from '@modelcontextprotocol/server';
 import { createServer } from '../dist/server.js';
+import { VERSION } from '../src/version.ts';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
 import { openStorage } from '../dist/storage/index.js';
@@ -730,7 +731,7 @@ test('server_info exposes server metadata and selected data directory over memor
     assert.deepEqual(tools.tools.map(({ name }) => name), ['server_info']);
     const result = await client.callTool({ name: 'server_info' });
     assert.deepEqual(result.structuredContent, {
-      name: 'imoti', version: '0.1.0', stage: '3', dataDir: '/tmp/imoti-test-data',
+      name: 'imoti', version: VERSION, stage: '3', dataDir: '/tmp/imoti-test-data',
     });
     assert.equal(result.content.length, 1);
     assert.equal(result.content[0].type, 'text');
