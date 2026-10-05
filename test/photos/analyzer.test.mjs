@@ -49,3 +49,16 @@ test('reports coverage uncertainty for truncated PNG bytes', () => {
   assert.ok(assessment.images[0].uncertainty.some(value => /truncated|unreadable/i.test(value)));
   assert.ok(assessment.uncertainty.some(value => /coverage/i.test(value)));
 });
+
+test('reports coverage uncertainty for malformed JPEG and structurally invalid PNG bytes', () => {
+  const assessment = analyzePhotos([
+    { listingId: 'fake', reference: 'malformed-jpeg', mediaType: 'image/jpeg', bytes: new Uint8Array([1, 2, 3, 4]) },
+    {
+      listingId: 'fake', reference: 'invalid-png', mediaType: 'image/png',
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]),
+    },
+  ]);
+
+  assert.ok(assessment.images.every(image => image.uncertainty.some(value => /unreadable/i.test(value))));
+  assert.ok(assessment.uncertainty.some(value => /coverage/i.test(value)));
+});

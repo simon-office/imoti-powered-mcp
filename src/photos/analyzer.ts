@@ -20,14 +20,30 @@ export interface PhotoAssessment {
 
 const renderHeuristic = 'Possible rendered or synthetic image signature; heuristic only, not a definitive classification.';
 
-function hasPngEndMarker(bytes: Uint8Array): boolean {
-  for (let index = 8; index <= bytes.length - 8; index += 1) {
-    if (bytes[index] === 0 && bytes[index + 1] === 0 && bytes[index + 2] === 0 && bytes[index + 3] === 0
-      && bytes[index + 4] === 0x49 && bytes[index + 5] === 0x45 && bytes[index + 6] === 0x4e && bytes[index + 7] === 0x44) {
-      return true;
+function hasReadablePngStructure(bytes: Uint8Array): boolean {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (!signature.every((value, index) => bytes[index] === value)) return false;
+
+  let offset = signature.length;
+  let hasHeader = false;
+  while (offset + 12 <= bytes.length) {
+    const length = bytes[offset] * 0x1000000 + (bytes[offset + 1] << 16) + (bytes[offset + 2] << 8) + bytes[offset + 3];
+    const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+    const end = offset + 12 + length;
+    if (end > bytes.length) return false;
+    if (!hasHeader) {
+      if (type !== 'IHDR' || length !== 13) return false;
+      hasHeader = true;
     }
+    if (type === 'IEND') return hasHeader && length === 0 && end === bytes.length;
+    offset = end;
   }
   return false;
+}
+
+function hasReadableJpegEnvelope(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8
+    && bytes[bytes.length - 2] === 0xff && bytes[bytes.length - 1] === 0xd9;
 }
 
 export function analyzePhotos(photos: ListingPhoto[]): PhotoAssessment {
@@ -48,9 +64,11 @@ export function analyzePhotos(photos: ListingPhoto[]): PhotoAssessment {
     } else {
       const isPng = photo.mediaType.toLowerCase() === 'image/png'
         || (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47);
-      if (isPng && !hasPngEndMarker(bytes)) {
+      const isJpeg = photo.mediaType.toLowerCase() === 'image/jpeg'
+        || (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8);
+      if ((isPng && !hasReadablePngStructure(bytes)) || (isJpeg && !hasReadableJpegEnvelope(bytes))) {
         hasCoverageGap = true;
-        uncertainty.push('PNG image bytes appear truncated or unreadable; visual assessment coverage is incomplete.');
+        uncertainty.push(`${isPng ? 'PNG' : 'JPEG'} image bytes appear malformed or unreadable; visual assessment coverage is incomplete.`);
       }
       totalBytes += bytes.byteLength;
       const hash = createHash('sha256').update(bytes).digest('hex');
