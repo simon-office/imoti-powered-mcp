@@ -11,6 +11,9 @@ import { buildSearchUrls, verifyFilters } from './search/url-builder.js';
 import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
 import { resolveDistrict } from './search/slugs.js';
+import type { SofiaDataAdapter } from './adapter/sofia-data.js';
+import { resolveListingLocation } from './area/location.js';
+import type { NormalizedStop, NormalizedSchedule, NormalizedMunicipalFeature, NormalizedWalkingRoute } from './area/types.js';
 import { assessListingPhotos, configuredPhotoAssessmentOptions, type PhotoAssessmentOptions } from './photos/assessment.js';
 
 declare const process: { env: Record<string, string | undefined> };
@@ -20,6 +23,7 @@ export interface ServerDependencies {
   adapter?: SiteAdapter;
   storage?: Storage;
   photoAssessment?: PhotoAssessmentOptions;
+  sofiaData?: SofiaDataAdapter;
 }
 
 export function createServer(deps: ServerDependencies = {}): McpServer {
@@ -103,6 +107,44 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         if (watch) storage.watch(listingId); else storage.unwatch(listingId);
         const result = { listingId, watching: storage.listWatched().includes(listingId) };
         return { structuredContent: result, content: [{ type: 'text' as const, text: `${watch ? 'Watching' : 'Stopped watching'} listing ${listingId}.` }] };
+      } catch (error) { return toolError(error); }
+    });
+  }
+
+  if (deps.storage) {
+    const { storage } = deps;
+    const areaData = deps.sofiaData;
+    server.registerTool('area_context', {
+      description: 'Return Sofia transit and municipal context for a stored property listing, with location precision and source provenance.',
+      inputSchema: { listingId: z.string().min(1), radiusMeters: z.number().positive().max(50000).default(1000) },
+      outputSchema: z.object({ listingId: z.string(), location: z.record(z.string(), z.unknown()), nearbyStops: z.unknown(), schedules: z.unknown(), municipalFeatures: z.unknown(), sourceMetadata: z.record(z.string(), z.array(z.unknown())), uncertainty: z.array(z.string()) }),
+    }, async ({ listingId, radiusMeters }) => {
+      try {
+        const listing = storage.getListing(listingId);
+        if (!listing) return { isError: true, content: [{ type: 'text' as const, text: `Listing ${listingId} was not found in local storage.` }] };
+        const location = resolveListingLocation(listing);
+        const [stops, schedules, features, routes] = areaData
+          ? await Promise.all([areaData.getStops(), areaData.getSchedules(), areaData.getMunicipalFeatures(), areaData.getWalkingRoutes()])
+          : [[], [], [], []] as [NormalizedStop[], NormalizedSchedule[], NormalizedMunicipalFeature[], NormalizedWalkingRoute[]];
+        const uncertainty = [...location.uncertainty];
+        const findRoute = (destination: string) => routes.find(route => route.origin === listingId && route.destination === destination);
+        const routedStops = location.coordinates ? stops.flatMap((stop: NormalizedStop) => {
+          const route = findRoute(stop.id);
+          return route && route.distanceMeters <= radiusMeters ? [{ ...stop, distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds, routingProvenance: route.provenance }] : [];
+        }) : [];
+        const routedFeatures = location.coordinates ? features.flatMap((feature: NormalizedMunicipalFeature) => {
+          const route = findRoute(feature.id);
+          return route && route.distanceMeters <= radiusMeters ? [{ ...feature, distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds, routingProvenance: route.provenance }] : [];
+        }) : [];
+        const stopsAvailable = location.coordinates !== undefined && routes.some(route => route.origin === listingId && stops.some(stop => stop.id === route.destination));
+        const featuresAvailable = location.coordinates !== undefined && routes.some(route => route.origin === listingId && features.some(feature => feature.id === route.destination));
+        const nearbyStops = stopsAvailable ? { status: 'available', items: routedStops, provenance: routedStops.map(item => ({ stop: item.provenance, routing: item.routingProvenance })) } : { status: 'unavailable', reason: `No property-specific routed stop distances are available for this location.`, provenance: stops.map(item => item.provenance) };
+        const municipalFeatures = featuresAvailable ? { status: 'available', items: routedFeatures, provenance: routedFeatures.map(item => ({ feature: item.provenance, routing: item.routingProvenance })) } : { status: 'unavailable', reason: `No property-specific routed municipal feature distances are available for this location.`, provenance: features.map(item => item.provenance) };
+        const stopIds = stopsAvailable ? new Set(routedStops.map(stop => stop.id)) : new Set<string>();
+        const relevantSchedules = schedules.filter((schedule: NormalizedSchedule) => stopIds.has(schedule.stopId));
+        if (!stopsAvailable) uncertainty.push('Nearby stops and schedules are unavailable because property-specific routed distances are not established.');
+        const result = { listingId, location, nearbyStops, schedules: stopsAvailable ? { status: 'available', items: relevantSchedules, provenance: relevantSchedules.map(item => item.provenance) } : { status: 'unavailable', reason: 'Schedules unavailable because nearby stops cannot be established.', provenance: schedules.map(item => item.provenance) }, municipalFeatures, sourceMetadata: { stops: stops.map(item => item.provenance), schedules: schedules.map(item => item.provenance), municipalFeatures: features.map(item => item.provenance), routing: routes.map(item => item.provenance) }, uncertainty };
+        return { structuredContent: result, content: [{ type: 'text' as const, text: `Area context for ${listingId}: location precision ${location.precision}; ${stopsAvailable ? `${routedStops.length} routed stops` : 'nearby transit unavailable'}; ${featuresAvailable ? `${routedFeatures.length} routed features` : 'nearby features unavailable'}.` }] };
       } catch (error) { return toolError(error); }
     });
   }
