@@ -11,7 +11,7 @@ import { buildSearchUrls, verifyFilters } from './search/url-builder.js';
 import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
 import { resolveDistrict } from './search/slugs.js';
-import { analyzePhotos } from './photos/analyzer.js';
+import { assessListingPhotos, configuredPhotoAssessmentOptions, type PhotoAssessmentOptions } from './photos/assessment.js';
 
 function smallerPhotoReference(reference: string): string | undefined {
   try {
@@ -30,6 +30,7 @@ export interface ServerDependencies {
   dataDir?: string;
   adapter?: SiteAdapter;
   storage?: Storage;
+  photoAssessment?: PhotoAssessmentOptions;
 }
 
 export function createServer(deps: ServerDependencies = {}): McpServer {
@@ -141,15 +142,20 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         let previewIndex = 0;
         const photos = page.map(({ listingId: photoListingId, reference, mediaType, unavailableReason }) => ({ listingId: photoListingId, reference, mediaType, ...(unavailableReason ? { unavailableReason } : {}) }));
         const uncertainty = photos.flatMap(photo => photo.unavailableReason ? [`Photo ${photo.reference}: ${photo.unavailableReason}`] : []);
-        const imageBlocks = page.flatMap((photo, index) => {
+        // Assessment operates on original retrieved bytes; host image blocks use the
+        // site's smaller preview where available, matching the bounded tool page.
+        const hostImages = page.flatMap((photo, index) => {
           const previewReference = previewReferences[index];
           const image = previewReference ? previewPhotos[previewIndex++] : photo;
-          const bytes = image?.bytes && image.bytes.byteLength <= 200_000 ? image.bytes : undefined;
-          return bytes && /^image\/(?:png|jpeg|webp|gif)$/i.test(image.mediaType) ? [{ type: 'image' as const, data: btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')), mimeType: image.mediaType }] : [];
+          const bytes = image?.bytes && image.bytes.byteLength <= 200_000 && !image.unavailableReason ? image.bytes : undefined;
+          return bytes && /^image\/(?:png|jpeg|webp|gif)$/i.test(image.mediaType)
+            ? [{ type: 'image' as const, data: btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')), mimeType: image.mediaType }]
+            : [];
         });
-        const assessment = analyzePhotos(retrieved);
+        const result = await assessListingPhotos(retrieved, deps.photoAssessment ?? configuredPhotoAssessmentOptions(process.env));
+        const assessment = { ...result.deterministic, findings: result.findings, provider: result.provider };
         const nextOffset = offset + page.length < retrieved.length ? offset + page.length : null;
-        return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${retrieved.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`}` }, ...imageBlocks] };
+        return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty: [...uncertainty, ...result.uncertainty] }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${retrieved.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`} ${result.provider === 'host' ? 'Assess the attached image content; coverage may be incomplete.' : `Assessment provider: ${result.provider}.`}` }, ...hostImages] };
       } catch (error) { return toolError(error); }
     });
     server.registerTool('refresh_watched', {
