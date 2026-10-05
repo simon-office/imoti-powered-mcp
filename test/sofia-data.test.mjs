@@ -30,14 +30,35 @@ test('fixture adapter normalizes GTFS-shaped stop fields and numeric coordinates
   }]);
 });
 
-test('data source documentation separates verified facts from unknown dataset dates and reuse terms', async () => {
+test('source documentation cites the official GTFS feed, validity dates and conflicting reuse evidence', async () => {
   const doc = await readFile(new URL('../docs/data-sources.md', import.meta.url), 'utf8');
-  assert.match(doc, /GTFS/i);
+  assert.ok(doc.includes('https://gtfs.sofiatraffic.bg/api/v1/static'));
+  assert.ok(doc.includes('https://urbandata.sofia.bg/dataset/gtfs-static'));
+  assert.ok(doc.includes('https://www.sofia.bg/transport-data'));
+  assert.match(doc, /feed_start_date.*20261005/);
+  assert.match(doc, /feed_end_date.*20271005/);
+  assert.match(doc, /CC BY 4\.0/);
+  assert.match(doc, /CC BY-SA/);
+  assert.match(doc, /conflict/i);
+  assert.match(doc, /not a publication date/i);
+});
+
+test('source documentation cites a dated municipal geographic dataset and its checked licence', async () => {
+  const doc = await readFile(new URL('../docs/data-sources.md', import.meta.url), 'utf8');
+  assert.ok(doc.includes('https://urbandata.sofia.bg/dataset/regions_sofia-zip'));
+  assert.match(doc, /2026-08-28/);
+  assert.match(doc, /Creative Commons Attribution.*version.*not specified/i);
+});
+
+test('source documentation distinguishes pedestrian data dates, software and service permissions', async () => {
+  const doc = await readFile(new URL('../docs/data-sources.md', import.meta.url), 'utf8');
+  assert.ok(doc.includes('https://download.geofabrik.de/europe/bulgaria.html'));
+  assert.match(doc, /2026-10-03T20:20:50Z/);
   assert.match(doc, /OpenStreetMap/i);
   assert.match(doc, /OSRM/i);
-  assert.match(doc, /2026-10-05/);
-  assert.match(doc, /no feed-specific licence or reuse grant could be verified/i);
-  assert.match(doc, /Dataset date: unknown/);
+  assert.match(doc, /ODbL 1\.0/);
+  assert.match(doc, /2-clause BSD/);
+  assert.match(doc, /no hosted service permission/i);
   assert.match(doc, /Sourced facts versus inference/);
   assert.match(doc, /never downloads/);
 });
