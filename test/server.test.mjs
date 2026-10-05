@@ -136,6 +136,26 @@ test('photo responses assess six photos in-process, bound host images, and conti
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('photo fallback requests the site big variant for host image blocks', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-variants-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const reference = 'https://imotstatic1.focus.bg/photosimotbg/a/b/big1/photo.jpg';
+  const preview = 'https://imotstatic1.focus.bg/photosimotbg/a/b/big/photo.jpg';
+  storage.upsertListing({ id: 'variant-photo', photos: [reference] });
+  const originalBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 2, 128, 1, 64, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0]);
+  const previewBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, 1, 194, 3, 32, 3, 1, 17, 0, 2, 17, 0, 3, 17, 0]);
+  const adapter = new FixtureAdapter({}, { photos: { [reference]: originalBytes, [preview]: previewBytes } });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'variant-photo' } });
+      assert.equal(result.content.filter(block => block.type === 'image').length, 1);
+      assert.equal(result.content.find(block => block.type === 'image').data, Buffer.from(previewBytes).toString('base64'));
+      assert.equal(result.structuredContent.assessment.images[0].width, 320);
+      assert.equal(result.structuredContent.assessment.images[0].height, 640);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('get_listing_photos reports unavailable listing as an explicit tool error', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-missing-'));
   const storage = openStorage(join(directory, 'test.db'));

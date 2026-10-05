@@ -13,6 +13,17 @@ import { parseListing } from './parsers/listing.js';
 import { resolveDistrict } from './search/slugs.js';
 import { analyzePhotos } from './photos/analyzer.js';
 
+function smallerPhotoReference(reference: string): string | undefined {
+  try {
+    const url = new URL(reference);
+    if (!/^(?:imotstatic|cdn)\d+\.focus\.bg$/i.test(url.hostname)) return undefined;
+    const match = url.pathname.match(/^(.*)\/big1\/([^/]+)$/);
+    if (!match) return undefined;
+    url.pathname = `${match[1]}/big/${match[2]}`;
+    return url.toString();
+  } catch { return undefined; }
+}
+
 declare const process: { env: Record<string, string | undefined> };
 
 export interface ServerDependencies {
@@ -125,9 +136,17 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const references = Array.isArray(listing.photos) ? listing.photos.filter((reference): reference is string => typeof reference === 'string') : [];
         const retrieved = await adapter.getListingPhotos(listingId, references);
         const page = retrieved.slice(offset, offset + 3);
+        const previewReferences = page.map(photo => smallerPhotoReference(photo.reference));
+        const previewPhotos = await adapter.getListingPhotos(listingId, previewReferences.filter((reference): reference is string => Boolean(reference)));
+        let previewIndex = 0;
         const photos = page.map(({ listingId: photoListingId, reference, mediaType, unavailableReason }) => ({ listingId: photoListingId, reference, mediaType, ...(unavailableReason ? { unavailableReason } : {}) }));
         const uncertainty = photos.flatMap(photo => photo.unavailableReason ? [`Photo ${photo.reference}: ${photo.unavailableReason}`] : []);
-        const imageBlocks = page.filter(photo => photo.bytes && /^image\/(?:png|jpeg|webp|gif)$/i.test(photo.mediaType) && photo.bytes.byteLength <= 12_000).map(photo => ({ type: 'image' as const, data: btoa(Array.from(photo.bytes!, byte => String.fromCharCode(byte)).join('')), mimeType: photo.mediaType }));
+        const imageBlocks = page.flatMap((photo, index) => {
+          const previewReference = previewReferences[index];
+          const image = previewReference ? previewPhotos[previewIndex++] : photo;
+          const bytes = image?.bytes && image.bytes.byteLength <= 200_000 ? image.bytes : undefined;
+          return bytes && /^image\/(?:png|jpeg|webp|gif)$/i.test(image.mediaType) ? [{ type: 'image' as const, data: btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')), mimeType: image.mediaType }] : [];
+        });
         const assessment = analyzePhotos(retrieved);
         const nextOffset = offset + page.length < retrieved.length ? offset + page.length : null;
         return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${retrieved.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`}` }, ...imageBlocks] };
