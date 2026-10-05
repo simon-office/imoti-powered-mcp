@@ -60,6 +60,25 @@ test('sends same-host 800-pixel variant while inventory retains original bytes',
   assert.ok(result.uncertainty.includes('Host model image assessment is requested; do not infer hidden defects from photos.'));
 });
 
+test('falls back from an oversized 800-pixel image to its same-host 280-pixel thumbnail', async () => {
+  const original = { listingId: 'fake-listing', reference: 'https://imotstatic1.focus.bg/photosimotbg/a/b/big1/thumb.jpg', mediaType: 'image/jpeg', bytes: new Uint8Array(200_001) };
+  const urls = [];
+  const result = await assessListingPhotos([original], { retrieveVariant: async url => {
+    urls.push(url);
+    return { bytes: new Uint8Array(url.includes('/big/') ? 200_001 : 200_000), mediaType: 'image/jpeg' };
+  } });
+  assert.deepEqual(urls, ['https://imotstatic1.focus.bg/photosimotbg/a/b/big/thumb.jpg', 'https://imotstatic1.focus.bg/photosimotbg/a/b/thumb.jpg']);
+  assert.equal(result.contentBlocks.length, 1);
+  assert.ok(result.uncertainty.some(text => text.includes(original.reference) && text.includes('280px')));
+});
+
+test('omits thumbnail when both host variants exceed the byte cap', async () => {
+  const original = { listingId: 'fake-listing', reference: 'https://imotstatic1.focus.bg/photosimotbg/a/b/big1/large.jpg', mediaType: 'image/jpeg', bytes: new Uint8Array(200_001) };
+  const result = await assessListingPhotos([original], { retrieveVariant: async () => ({ bytes: new Uint8Array(200_001), mediaType: 'image/jpeg' }) });
+  assert.deepEqual(result.contentBlocks, []);
+  assert.ok(result.uncertainty.some(text => text.includes(original.reference) && text.includes('thumbnail') && text.includes('exceeds 200,000')));
+});
+
 test('reports omission reason and does not claim attachments when variant retrieval fails', async () => {
   const original = { listingId: 'fake-listing', reference: 'https://imotstatic1.focus.bg/photosimotbg/a/b/big1/omitted.jpg', mediaType: 'image/jpeg', bytes: new Uint8Array(200_001) };
   const result = await assessListingPhotos([original], { retrieveVariant: async () => { throw new Error('synthetic retrieval failure'); } });
