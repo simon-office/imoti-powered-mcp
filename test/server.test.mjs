@@ -893,6 +893,27 @@ test('search_listings preserves multiple property types and client-filters types
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('search_listings round-robins requested types before applying the limit', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-type-interleave-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const page = (type, label, prefix) => `<!doctype html><html><body>${Array.from({ length: 21 }, (_, index) => {
+    const id = `1c${prefix}${String(index + 1).padStart(12, '0')}`;
+    return `<div class="item" id="ida${id}"><div class="text"><div class="zaglavie"><a class="title" href="/obiava-${id}-invented">Продава ${label} <location>град София, Изток</location></a></div><div class="price">${100 + index} 000 €</div></div><div class="info">${30 + index} кв.м, invented details</div></div>`;
+  }).join('')}</body></html>`;
+  const adapter = { fetchPage: async url => ({ html: page(url.endsWith('/ednostaen') ? 'ednostaen' : 'dvustaen', url.endsWith('/ednostaen') ? '1-СТАЕН' : '2-СТАЕН', url.endsWith('/ednostaen') ? '11' : '22'), url, status: 200, fetchedAt: new Date() }), close: async () => {} };
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { propertyTypes: ['ednostaen', 'dvustaen'], maxPages: 1 }, limit: 20 } });
+      const listings = result.structuredContent.listings;
+      assert.equal(listings.length, 20);
+      assert.ok(listings.some(item => item.propertyType.slug === 'ednostaen'));
+      assert.ok(listings.some(item => item.propertyType.slug === 'dvustaen'));
+      assert.equal(new Set(listings.map(item => item.id)).size, listings.length);
+      assert.deepEqual(listings.slice(0, 4).map(item => item.propertyType.slug), ['ednostaen', 'dvustaen', 'ednostaen', 'dvustaen']);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('search_listings verifies matching requested deal and city filters', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));

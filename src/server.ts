@@ -496,8 +496,14 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const ordered = [...listings.values()];
         const districtOf = (item: Listing) => (item.location as { district?: unknown } | undefined)?.district;
         const districtGroups = criteria.districts.length ? criteria.districts.map(name => ordered.filter(item => typeof districtOf(item) === 'string' && resolveDistrict(districtOf(item) as string).slug === resolveDistrict(name).slug)) : [ordered];
+        const selectionGroups = criteria.propertyTypes.length
+          ? criteria.propertyTypes.map(type => ordered.filter(item => {
+            const propertyType = item.propertyType as { slug?: string; label?: string } | undefined;
+            return catalogTypeMatches(type, propertyType?.slug, propertyType?.label);
+          }))
+          : districtGroups;
         const interleaved: Listing[] = [];
-        for (let index = 0; districtGroups.some(group => index < group.length); index++) for (const group of districtGroups) if (group[index] && !interleaved.some(item => item.id === group[index].id)) interleaved.push(group[index]);
+        for (let index = 0; selectionGroups.some(group => index < group.length); index++) for (const group of selectionGroups) if (group[index] && !interleaved.some(item => item.id === group[index].id)) interleaved.push(group[index]);
         const results = interleaved.slice(0, limit);
         const districtCounts = Object.fromEntries(criteria.districts.map(name => [resolveDistrict(name).slug, results.filter(item => typeof districtOf(item) === 'string' && resolveDistrict(districtOf(item) as string).slug === resolveDistrict(name).slug).length]));
         if (listings.size > limit) truncated = true;
