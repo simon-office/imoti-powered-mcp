@@ -117,10 +117,12 @@ export function parseSearchResults(input: string | Uint8Array, pageUrl = 'https:
   });
   const next = document.querySelector('a.next')?.getAttribute('href') ?? null;
   const pageMatch = new URL(pageUrl).pathname.match(/\/p-(\d+)/);
+  const totalText = document.querySelector('.SearchInfoLine')?.textContent ?? '';
+  const totalMatch = totalText.match(/от\s*общо\s*([\d\s]+)/i);
   return {
     listings,
     nextPageUrl: absoluteHttps(next, pageUrl),
     pageNumber: pageMatch ? Number(pageMatch[1]) : 1,
-    totalCount: listings.length === 0 ? 0 : null,
+    totalCount: totalMatch ? Number(totalMatch[1].replace(/\s/g, '')) : listings.length === 0 ? 0 : null,
   };
 }
