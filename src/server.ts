@@ -594,7 +594,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
 
 function reconcileCardDetail(card: Listing | undefined, detail: Listing): { authority: 'detail'; discrepancies: Array<{ field: string; card: unknown; detail: unknown }> } {
   const fields = ['price', 'priceLowered', 'seller', 'location'] as const;
-  const discrepancies = card ? fields.flatMap(field => {
+  const discrepancies: Array<{ field: string; card: unknown; detail: unknown }> = card ? fields.flatMap(field => {
     const cardValue = card[field];
     const detailValue = detail[field];
     if (cardValue === undefined || detailValue === undefined || JSON.stringify(cardValue) === JSON.stringify(detailValue)) return [];
@@ -603,8 +603,9 @@ function reconcileCardDetail(card: Listing | undefined, detail: Listing): { auth
   const description = typeof detail.description === 'string' ? detail.description : '';
   const amount = /(?:€|EUR)\s*([\d\s.,]+)|([\d\s.,]+)\s*(?:€|EUR)/i.exec(description);
   const describedPrice = amount && Number((amount[1] ?? amount[2]).replace(/[\s,.]/g, ''));
-  if (typeof detail.price === 'number' && describedPrice && detail.price !== describedPrice) discrepancies.push({ field: 'price', card: { description: describedPrice }, detail: detail.price });
-  const district = /(?:квартал|кв\.?|район)\s+([\p{L}\d -]+)/iu.exec(description)?.[1]?.trim();
+  const detailPrice = typeof detail.price === 'number' ? detail.price : detail.price && typeof detail.price === 'object' ? (detail.price as { amount?: unknown }).amount : undefined;
+  if (typeof detailPrice === 'number' && describedPrice && detailPrice !== describedPrice) discrepancies.push({ field: 'price', card: { description: describedPrice }, detail: detail.price as unknown });
+  const district = /(?:квартал|кв\.?|район)\s+([\p{L}\d -]+?)(?=\s+(?:за|на|с|от)\s|[.,;]|$)/iu.exec(description)?.[1]?.trim();
   const detailDistrict = detail.location && typeof detail.location === 'object' ? (detail.location as Record<string, unknown>).district : undefined;
   if (district && typeof detailDistrict === 'string' && district.toLocaleLowerCase('bg-BG') !== detailDistrict.toLocaleLowerCase('bg-BG')) discrepancies.push({ field: 'location', card: { descriptionDistrict: district }, detail: { district: detailDistrict } });
   return { authority: 'detail', discrepancies };
