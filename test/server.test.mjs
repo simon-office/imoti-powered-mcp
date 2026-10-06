@@ -148,6 +148,23 @@ test('area_context distinguishes unresolved coordinates from no stops within the
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('area_context text names nearest metro and destination with straight-line distances', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-summary-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const provenance = { name: 'Synthetic transit', sourceUrl: 'https://fixture.test/transit', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  storage.upsertListing({ id: 'metro-summary-property', location: { city: 'Sofia', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true, source: 'synthetic-property-geocode' } });
+  const sofiaData = new FixtureSofiaDataAdapter({ stops: [{ id: 'synthetic-metro-stop', name: 'Imaginary Central Station', mode: 'metro', latitude: 42.701, longitude: 23.3, provenance }] });
+  try {
+    await withClient(createServer({ storage, sofiaData }), async client => {
+      const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'metro-summary-property', destination: { name: 'Imaginary Library', latitude: 42.702, longitude: 23.3 } } });
+      assert.match(result.content[0].text, /Imaginary Central Station/);
+      assert.match(result.content[0].text, /straight-line distance \d+ m/i);
+      assert.match(result.content[0].text, /Imaginary Library/);
+      assert.match(result.content[0].text, /Imaginary Library[^.]*\d+ m/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('search_listings reports filter mismatches, client-filters results, and persists observations', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
