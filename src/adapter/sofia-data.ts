@@ -27,6 +27,7 @@ export interface GtfsStopRow {
   stop_name: string;
   stop_lat: string | number;
   stop_lon: string | number;
+  route_type?: string | number;
   provenance: TransitStop['provenance'];
 }
 
@@ -45,6 +46,7 @@ export class FixtureSofiaDataAdapter implements SofiaDataAdapter {
           name: stop.stop_name,
           latitude: Number(stop.stop_lat),
           longitude: Number(stop.stop_lon),
+          ...(stop.route_type !== undefined ? { ...modeForRouteType(Number(stop.route_type)) } : {}),
           provenance: structuredClone(stop.provenance)
         };
       }
@@ -68,6 +70,28 @@ export class FixtureSofiaDataAdapter implements SofiaDataAdapter {
   }
 }
 
+function modeForRouteType(routeType: number): Pick<TransitStop, 'mode' | 'routeTypes'> {
+  const modes: Record<number, NonNullable<TransitStop['mode']>> = { 0: 'tram', 1: 'metro', 2: 'rail', 3: 'bus', 4: 'ferry', 5: 'cableway', 6: 'gondola', 7: 'funicular', 11: 'trolleybus', 12: 'monorail' } as Record<number, NonNullable<TransitStop['mode']>>;
+  return { mode: modes[routeType] ?? 'unknown', routeTypes: [routeType] };
+}
+
+function modeForRouteTypes(routeTypes: number[]): Pick<TransitStop, 'mode' | 'routeTypes'> {
+  const unique = [...new Set(routeTypes)].sort((a, b) => a - b);
+  return { mode: modeForRouteType(unique.includes(1) ? 1 : unique[0]).mode, routeTypes: unique };
+}
+
+function parseRouteTypesByStop(files: Map<string, Uint8Array>): Record<string, number[]> {
+  const text = (filename: string) => { const bytes = [...files].find(([name]) => name === filename || name.endsWith(`/${filename}`))?.[1]; return bytes ? new TextDecoder().decode(bytes) : undefined; };
+  const routesText = text('routes.txt'), tripsText = text('trips.txt'), stopTimesText = text('stop_times.txt');
+  if (!routesText || !tripsText || !stopTimesText) return {};
+  const rows = (input: string) => { const [headerLine, ...lines] = input.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean); const header = parseCsvLine(headerLine); return lines.map(line => Object.fromEntries(parseCsvLine(line).map((value, index) => [header[index], value]))); };
+  const routeTypes = new Map(rows(routesText).flatMap(row => { const type = Number(row.route_type); return row.route_id && Number.isInteger(type) ? [[row.route_id, type] as const] : []; }));
+  const tripRoutes = new Map(rows(tripsText).flatMap(row => row.trip_id && row.route_id ? [[row.trip_id, row.route_id] as const] : []));
+  const result: Record<string, number[]> = {};
+  for (const row of rows(stopTimesText)) { const type = routeTypes.get(tripRoutes.get(row.trip_id) ?? ''); if (row.stop_id && type !== undefined) (result[row.stop_id] ??= []).push(type); }
+  return result;
+}
+
 export interface SofiaLocalCache {
   read(key: string): Promise<string | undefined>;
   write(key: string, value: string): Promise<void>;
@@ -78,7 +102,7 @@ export interface LocalSofiaDataAdapterOptions {
   cacheMaxAgeMs?: number;
   cache?: SofiaLocalCache;
   dataDirectory?: string;
-  fetchStops?: () => Promise<string | { stopsText: string; feedInfoText?: string } | ArrayBuffer | Uint8Array>;
+  fetchStops?: () => Promise<string | { stopsText: string; feedInfoText?: string; routeTypesByStop?: Record<string, number[]> } | ArrayBuffer | Uint8Array>;
   now?: () => Date;
   fetchMunicipalData?: () => Promise<{ addressesZip: ArrayBuffer; districtsText: string }>;
   unzipAddresses?: (archive: ArrayBuffer) => string | Promise<string>;
@@ -138,7 +162,8 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
     const feedInfo = zipFiles ? (feedInfoEntry ? new TextDecoder().decode(feedInfoEntry) : undefined) : typeof feed === 'string' || feed instanceof ArrayBuffer || feed instanceof Uint8Array ? undefined : feed.feedInfoText;
     const datasetDate = parseFeedStartDate(feedInfo);
     const feedEndDate = parseFeedEndDate(feedInfo);
-    const rows = parseGtfsStops(stopsText);
+    const routeTypesByStop = zipFiles ? parseRouteTypesByStop(zipFiles) : typeof feed === 'object' && !(feed instanceof ArrayBuffer) && !(feed instanceof Uint8Array) ? feed.routeTypesByStop : undefined;
+    const rows = parseGtfsStops(stopsText).map(row => ({ ...row, ...(routeTypesByStop?.[row.id]?.length ? modeForRouteTypes(routeTypesByStop[row.id]) : { mode: 'unknown' as const, routeTypes: [] }) }));
     const checkedAt = this.#now().toISOString();
     const stops: TransitStop[] = rows.map(row => ({ ...row, provenance: {
       name: 'Sofia Urban Mobility Center static GTFS', sourceUrl: GTFS_URL,
@@ -408,12 +433,12 @@ function parseFeedEndDate(text?: string): string | undefined {
   return dateIndex < 0 ? undefined : parseDate(parseCsvLine(lines[1])[dateIndex]);
 }
 
-async function fetchOfficialStops(): Promise<{ stopsText: string; feedInfoText?: string }> {
+async function fetchOfficialStops(): Promise<{ stopsText: string; feedInfoText?: string; routeTypesByStop?: Record<string, number[]> }> {
   const response = await fetch(GTFS_URL);
   if (!response.ok) throw new Error(`Sofia GTFS download failed with HTTP ${response.status}`);
   const files = readZipEntries(await response.arrayBuffer());
   const normalized = new Map([...files].map(([name, value]) => [name.split('/').at(-1)!, new TextDecoder().decode(value)]));
   const stopsText = normalized.get('stops.txt');
   if (!stopsText) throw new Error('Sofia GTFS archive does not contain stops.txt');
-  return { stopsText, feedInfoText: normalized.get('feed_info.txt') };
+  return { stopsText, feedInfoText: normalized.get('feed_info.txt'), routeTypesByStop: parseRouteTypesByStop(new Map([...normalized].map(([name, value]) => [name, new TextEncoder().encode(value)]))) };
 }
