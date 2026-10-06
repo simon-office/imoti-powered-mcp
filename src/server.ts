@@ -470,15 +470,12 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             city: criteria.city,
             district: criteria.districts.length ? path[3] : undefined,
             type: path[criteria.districts.length ? 4 : 3],
-          }, listings: parsed.listings.filter(item => !item.promotedTier || verifyFilters(criteria, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] }).ok).map(item => ({
-            dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType,
-            price: item.price,
-          })) });
+          }, listings: [] });
           // The site's page filters are the authority for each scheduled
           // combination; card-level mismatches below are checked only on
           // listings that are actually returned (paid off-filter cards are
           // reported separately).
-          mismatches.push(...verification.mismatches.filter(item => item.filter !== 'district' && item.filter !== 'type'));
+          mismatches.push(...verification.mismatches.filter(item => item.filter !== 'district' && item.filter !== 'type').map(item => ({ ...item, verificationScope: 'page', sourcePageUrl: url })));
           const pathParts = new URL(url).pathname.split('/').filter(Boolean);
           if (criteria.districts.length) coveredDistricts.add(pathParts[3]);
           if (criteria.propertyTypes.length || criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max) coveredTypes.add(pathParts[criteria.districts.length ? 4 : 3]);
@@ -486,6 +483,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             if (!item.id || !item.url) continue;
             const itemCheck = verifyFilters(criteria, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] });
             const nonTypeCheck = verifyFilters({ ...criteria, propertyTypes: [], rooms: undefined }, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] });
+            if (!item.promotedTier || nonTypeCheck.ok) mismatches.push(...itemCheck.mismatches.filter(mismatch => mismatch.filter !== 'district' && mismatch.filter !== 'type').map(mismatch => ({ ...mismatch, listingId: item.id, sourcePageUrl: url })));
             if (item.promotedTier && !nonTypeCheck.ok) { excludedPromoted.push({ listing: { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' }, pageUrl: url }); continue; }
             if (criteria.districts.length && (!item.location.district || !criteria.districts.some(name => resolveDistrict(name).slug === resolveDistrict(item.location.district!).slug))) continue;
             if (criteria.priceMin !== undefined && (item.price?.amount === undefined || item.price.amount < criteria.priceMin)) continue;
@@ -494,7 +492,6 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             if (criteria.areaMax !== undefined && (item.areaM2 === null || item.areaM2 > criteria.areaMax)) continue;
             if (criteria.rooms && (item.propertyType?.rooms === null || item.propertyType?.rooms === undefined || (criteria.rooms.min !== undefined && item.propertyType.rooms < criteria.rooms.min) || (criteria.rooms.max !== undefined && item.propertyType.rooms > criteria.rooms.max))) continue;
             if (criteria.propertyTypes.length && !criteria.propertyTypes.some(type => catalogTypeMatches(type, item.propertyType?.slug, item.propertyType?.label))) { omittedByTypeFilter++; continue; }
-            mismatches.push(...itemCheck.mismatches.map(mismatch => ({ ...mismatch, listingId: item.id, sourcePageUrl: url })));
             if (!listings.has(item.id)) {
               listings.set(item.id, { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' });
               sourceUrls.set(item.id, url);

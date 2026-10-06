@@ -212,6 +212,23 @@ test('listing filter mismatches retain listing id and source page URL', async ()
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('page verification does not emit untraceable listing-derived mismatches', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-page-mismatch-trace-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const fixture = new URL('./fixtures/search-normal.html', import.meta.url);
+  const adapter = new FixtureAdapter([[/.*/, fixture]]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 999999, maxPages: 1 }, limit: 10 } });
+      const mismatches = result.structuredContent.verification.mismatches;
+      assert.ok(mismatches.length > 0);
+      assert.ok(mismatches.filter(item => item.verificationScope === 'page').every(item => typeof item.sourcePageUrl === 'string' && item.listingId === undefined));
+      assert.ok(mismatches.filter(item => item.listingId).every(item => typeof item.sourcePageUrl === 'string'));
+      assert.ok(mismatches.every(item => item.verificationScope === 'page' || typeof item.listingId === 'string' || item.filter === 'coverage'), 'each mismatch is traceable to a page, listing, or aggregate coverage result');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('multi-query search reports terminated pagination and returned versus known total', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-search-coverage-'));
   const storage = openStorage(join(directory, 'test.db'));
