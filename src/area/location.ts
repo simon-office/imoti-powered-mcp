@@ -8,7 +8,7 @@ export type ResolvedLocation = {
   precision: 'exact' | 'street' | 'neighbourhood' | 'unknown';
   source: string;
   uncertainty: string[];
-  provenance?: { name: string; sourceUrl: string; datasetDate: string; checkedAt: string; reuseTerms: string };
+  provenance?: { name: string; sourceUrl: string; datasetDate: string; checkedAt: string; reuseTerms: string; stale?: { reason: 'over-age' | 'feed-end-date'; refreshError: string } };
 };
 
 export interface MunicipalLocationDatasets {

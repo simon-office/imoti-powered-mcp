@@ -4,6 +4,7 @@ export interface DataSourceProvenance {
   datasetDate: string;
   checkedAt: string;
   reuseTerms: string;
+  stale?: { reason: 'over-age' | 'feed-end-date'; refreshError: string };
 }
 
 export interface NormalizedStop {

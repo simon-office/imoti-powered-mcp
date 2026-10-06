@@ -115,10 +115,10 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
         if (Array.isArray(parsed) && parsed.length && parsed.every(validStop)) {
           const endDate = parseDate((parsed[0].provenance as TransitStop['provenance'] & { feedEndDate?: string }).feedEndDate);
           const now = this.#now();
-          const stale = isCacheOld(parsed[0].provenance.checkedAt, now, this.#cacheMaxAgeMs)
-            || (endDate !== undefined && endDate < now.toISOString().slice(0, 10));
-          if (!stale) return parsed;
-          try { return await this.#refreshStops(); } catch { return parsed; }
+          const overAge = isCacheOld(parsed[0].provenance.checkedAt, now, this.#cacheMaxAgeMs);
+          const feedExpired = endDate !== undefined && endDate < now.toISOString().slice(0, 10);
+          if (!overAge && !feedExpired) return parsed;
+          try { return await this.#refreshStops(); } catch (error) { return markStale(parsed, feedExpired ? 'feed-end-date' : 'over-age', error); }
         }
       } catch { /* refresh invalid cache */ }
     }
@@ -159,30 +159,30 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
     ]);
     const cached = [parseCachedLocations(addressCache, 'addresses'), parseCachedLocations(districtCache, 'districts')];
     const completeCache = !!cached[0] && !!cached[1];
-    const stale = cached.some(dataset => dataset && isCacheOld(dataset[0].provenance.checkedAt, this.#now(), this.#cacheMaxAgeMs));
-    if (completeCache && !stale) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
+    const stale = cached.map(dataset => !!dataset && isCacheOld(dataset[0].provenance.checkedAt, this.#now(), this.#cacheMaxAgeMs));
+    if (completeCache && !stale.some(Boolean)) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
     let fetched: Awaited<ReturnType<typeof fetchMunicipalData>>;
     try { fetched = await this.#fetchMunicipalData(); }
-    catch (error) { if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] }; throw error; }
+    catch (error) { if (completeCache) return markMunicipalStale(cached[0] as MunicipalLocationDatasets['addresses'], cached[1] as MunicipalLocationDatasets['districts'], stale, error); throw error; }
     let addresses: MunicipalLocationDatasets['addresses'];
     let districts: MunicipalLocationDatasets['districts'];
     try {
       const checkedAt = this.#now().toISOString();
-      addresses = (!stale ? cached[0] as MunicipalLocationDatasets['addresses'] | undefined : undefined) ?? parseAddressCsv(await this.#unzipAddresses(fetched.addressesZip), {
+      addresses = (!stale[0] ? cached[0] as MunicipalLocationDatasets['addresses'] | undefined : undefined) ?? parseAddressCsv(await this.#unzipAddresses(fetched.addressesZip), {
         name: 'Адреси на територията на Столична община', sourceUrl: ADDRESS_URL, datasetDate: '2026-09-15', checkedAt, reuseTerms: 'CC-BY'
       });
-      districts = (!stale ? cached[1] as MunicipalLocationDatasets['districts'] | undefined : undefined) ?? parseDistrictGeoJson(fetched.districtsText, {
+      districts = (!stale[1] ? cached[1] as MunicipalLocationDatasets['districts'] | undefined : undefined) ?? parseDistrictGeoJson(fetched.districtsText, {
         name: 'Квартали на Столична община', sourceUrl: DISTRICTS_URL, datasetDate: 'unknown', checkedAt, reuseTerms: 'Не са зададени лицензни права'
       });
     } catch (error) {
-      if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
+      if (completeCache) return markMunicipalStale(cached[0] as MunicipalLocationDatasets['addresses'], cached[1] as MunicipalLocationDatasets['districts'], stale, error);
       throw error;
     }
     try {
-      if (!cached[0] || stale) await this.#cache.write('sofia-addresses.json', JSON.stringify(addresses));
-      if (!cached[1] || stale) await this.#cache.write('sofia-districts.json', JSON.stringify(districts));
+      if (!cached[0] || stale[0]) await this.#cache.write('sofia-addresses.json', JSON.stringify(addresses));
+      if (!cached[1] || stale[1]) await this.#cache.write('sofia-districts.json', JSON.stringify(districts));
     } catch (error) {
-      if (completeCache) return { addresses: cached[0] as MunicipalLocationDatasets['addresses'], districts: cached[1] as MunicipalLocationDatasets['districts'] };
+      if (completeCache) return markMunicipalStale(cached[0] as MunicipalLocationDatasets['addresses'], cached[1] as MunicipalLocationDatasets['districts'], stale, error);
       throw error;
     }
     return { addresses, districts };
@@ -199,6 +199,19 @@ function parseCachedLocations(text: string | undefined, key: 'addresses' | 'dist
   } catch { /* refresh malformed cache */ }
   return undefined;
 }
+
+function markStale<T extends { provenance: TransitStop['provenance'] }>(rows: T[], reason: 'over-age' | 'feed-end-date', error: unknown): T[] {
+  return rows.map(row => ({ ...row, provenance: { ...row.provenance, stale: { reason, refreshError: errorMessage(error) } } }));
+}
+
+function markMunicipalStale(addresses: MunicipalLocationDatasets['addresses'], districts: MunicipalLocationDatasets['districts'], stale: boolean[], error: unknown): MunicipalLocationDatasets {
+  return {
+    addresses: stale[0] ? markStale(addresses, 'over-age', error) : addresses,
+    districts: stale[1] ? markStale(districts, 'over-age', error) : districts
+  };
+}
+
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
 function validProvenance(value: unknown): boolean {
   return !!value && typeof value === 'object' && ['name', 'sourceUrl', 'datasetDate', 'checkedAt', 'reuseTerms'].every(key => typeof (value as Record<string, unknown>)[key] === 'string');
