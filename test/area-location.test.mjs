@@ -288,6 +288,45 @@ test('area_context reports over-age municipal cache after failed refresh in prov
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('area_context reports expired GTFS fallback provenance and explanation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-stale-gtfs-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'stale-gtfs-property', location: { city: 'Sofia', coordinates: { latitude: 42, longitude: 23 }, precision: 'exact', propertySpecificEvidence: true } });
+  const provenance = { name: 'Synthetic GTFS', sourceUrl: 'https://fixture.test/gtfs', datasetDate: 'synthetic', feedEndDate: '2026-10-09', checkedAt: '2026-10-09T00:00:00.000Z', reuseTerms: 'Synthetic' };
+  const cached = JSON.stringify([{ id: 'synthetic-stop', name: 'Imaginary Stop', latitude: 42.001, longitude: 23, provenance }]);
+  const adapter = new LocalSofiaDataAdapter({ cache: { read: async () => cached, write: async () => {} }, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchStops: async () => { throw new Error('synthetic GTFS refresh failure'); } });
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-stale-gtfs-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'stale-gtfs-property', radiusMeters: 500 } });
+    assert.deepEqual(result.structuredContent.sourceMetadata.stops[0].stale, { reason: 'feed-end-date', refreshError: 'synthetic GTFS refresh failure' });
+    assert.ok(result.structuredContent.uncertainty.some(text => /Synthetic GTFS.*2026-10-09.*feed.*synthetic GTFS refresh failure/i.test(text)));
+    assert.match(result.content[0].text, /Synthetic GTFS dataset checked 2026-10-09.*feed.*synthetic GTFS refresh failure/i);
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context marks only the over-age municipal dataset stale after refresh failure', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-partial-stale-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'partial-stale-property', location: { city: 'Sofia', district: 'Imaginary', precision: 'neighbourhood' } });
+  const fresh = { name: 'Fresh synthetic addresses', sourceUrl: 'https://fixture.test/addresses', datasetDate: 'synthetic', checkedAt: '2026-10-09T00:00:00.000Z', reuseTerms: 'Synthetic' };
+  const old = { name: 'Old synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-09-01T00:00:00.000Z', reuseTerms: 'Synthetic' };
+  const cacheValues = new Map([['sofia-addresses.json', JSON.stringify([{ settlement: 'гр. София', street: 'ул. Измислена', region: 'А', latitude: 42, longitude: 23, provenance: fresh }])], ['sofia-districts.json', JSON.stringify([{ name: 'КВ. IMAGINARY', latitude: 42, longitude: 23, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance: old }])]]);
+  const adapter = new LocalSofiaDataAdapter({ cache: { read: async key => cacheValues.get(key), write: async () => {} }, now: () => new Date('2026-10-10T00:00:00.000Z'), fetchMunicipalData: async () => { throw new Error('synthetic refresh failure'); } });
+  const server = createServer({ storage, sofiaData: adapter });
+  const client = new Client({ name: 'area-partial-stale-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  try {
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'partial-stale-property' } });
+    const metadata = result.structuredContent.sourceMetadata.municipalLocations;
+    assert.equal(metadata.find(item => item.name === 'Fresh synthetic addresses').stale, undefined);
+    assert.deepEqual(metadata.find(item => item.name === 'Old synthetic districts').stale, { reason: 'over-age', refreshError: 'synthetic refresh failure' });
+  } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('area_context isolates source failures, deduplicates stops and bounds structured output', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-area-resilient-'));
   const storage = openStorage(join(directory, 'test.db'));
