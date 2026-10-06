@@ -415,3 +415,27 @@ checked: yes; redacted image references: ___; errors: ___. Do not fabricate owne
 exact addresses, credentials and personal data from reports and fixtures. Exclude photos, exact addresses, credentials and personal
 data from any shared report. Never share photo bytes, exact addresses, or credentials. Share only redacted image
 references and error text scrubbed of private values.
+
+## Stage 5 area-evidence and guidance follow-up
+
+On the next owner round, run the full local checks before opening Claude Code:
+
+```sh
+npm run build
+npm test
+claude plugin validate .
+claude --plugin-dir .
+```
+
+Repeat the synthetic evidence checks in tests: a price field of 620 EUR versus a description saying 700 EUR, and a
+listing district Младост 3 versus description Младост 4 must be reported as conflicts. For area context, confirm that
+available nearby stops remain established when schedules fail; the schedule explanation must say schedules are
+unavailable, not that nearby stops cannot be established. At neighbourhood precision, verify the explanation says
+distances are from the neighbourhood centre. Check duplicate same-name ЖК./КВ. polygon resolution and the Оборище
+address-point fallback through synthetic fixtures; do not use live listings or copy page content.
+
+For the round's photo/fact checks, follow the stage 3 photo inventory and fact-verification procedure above. Compare
+each factual result with its stated field/description evidence, mark photo observations correct/incorrect/uncertain, and
+record unavailable results separately. Report date/time, commit, exact commands and tool calls, sample counts, checks
+completed, failures, and redacted references using the owner-completed template. Do not report synthetic test outcomes as
+owner live findings, and do not include photos, listing text, exact addresses or personal data.

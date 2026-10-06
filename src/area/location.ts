@@ -51,6 +51,11 @@ export function resolveMunicipalLocation(listing: Listing, datasets: MunicipalLo
     const parkMatches = datasets.districts.filter(row => /^парк\s+/i.test(row.name) && normalize(row.name.replace(/^парк\s+/i, '')) === wanted);
     const estateMatches = matches.filter(row => /^жк\.?/i.test(row.name));
     const selected = parkMatches.length && estateMatches.length === 1 ? estateMatches : matches;
+    if (selected.length > 1 && selected.every(row => row.geometry) && selected.every(row => /^(?:жк\.?|кв\.?)/i.test(row.name))) {
+      const centroid = weightedPolygonCentroid(selected.map(row => row.geometry!.coordinates));
+      if (centroid) return { ...base, coordinates: centroid, precision: 'neighbourhood', source: selected[0].provenance.name, provenance: selected[0].provenance,
+        uncertainty: [`Coordinates are the area-weighted centroid of ${selected.length} same-name neighbourhood polygons; they do not identify the property building.`] };
+    }
     if (selected.length === 1 && selected[0].geometry) return { ...base, coordinates: { latitude: selected[0].latitude, longitude: selected[0].longitude }, precision: 'neighbourhood', source: selected[0].provenance.name, provenance: selected[0].provenance,
       uncertainty: [selected[0].geometry ? 'Coordinates are the centroid of the municipal neighbourhood polygon; they do not identify the property building.' : 'Municipal neighbourhood polygon geometry is unavailable; the supplied neighbourhood point is approximate and does not identify the property building.'] };
     if ((!selected.length || (selected.length === 1 && !selected[0].geometry)) && (!matches.length || (matches.length === 1 && !matches[0].geometry))) {
@@ -62,6 +67,25 @@ export function resolveMunicipalLocation(listing: Listing, datasets: MunicipalLo
       uncertainty: ['Municipal neighbourhood polygon geometry is unavailable; no matching municipal district address points were available, so the supplied neighbourhood point is approximate and does not identify the property building.'] };
   }
   return { ...base, coordinates: undefined, source: 'unresolved', uncertainty: [...base.uncertainty, 'No unambiguous match was found in the municipal address or neighbourhood datasets.'] };
+}
+
+function weightedPolygonCentroid(multipolygons: number[][][][][]): { latitude: number; longitude: number } | undefined {
+  let areaTotal = 0, xTotal = 0, yTotal = 0;
+  for (const multipolygon of multipolygons) for (const polygon of multipolygon) {
+    const outer = ringCentroid(polygon[0]);
+    if (!outer || outer.area <= 0) continue;
+    let area = outer.area, x = outer.x * outer.area, y = outer.y * outer.area;
+    for (const hole of polygon.slice(1)) { const center = ringCentroid(hole); if (center) { area -= center.area; x -= center.x * center.area; y -= center.y * center.area; } }
+    if (area > 0) { areaTotal += area; xTotal += x; yTotal += y; }
+  }
+  return areaTotal ? { latitude: yTotal / areaTotal, longitude: xTotal / areaTotal } : undefined;
+}
+function ringCentroid(ring: number[][]): { x: number; y: number; area: number } | undefined {
+  if (ring.length < 4) return undefined;
+  let twiceArea = 0, x = 0, y = 0;
+  for (let i = 0; i < ring.length - 1; i++) { const [x1, y1] = ring[i], [x2, y2] = ring[i + 1], cross = x1 * y2 - x2 * y1; twiceArea += cross; x += (x1 + x2) * cross; y += (y1 + y2) * cross; }
+  if (Math.abs(twiceArea) < 1e-12) return undefined;
+  return { x: x / (3 * twiceArea), y: y / (3 * twiceArea), area: Math.abs(twiceArea / 2) };
 }
 
 function normalize(value: string): string { return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('bg-BG'); }

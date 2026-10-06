@@ -45,6 +45,13 @@ test('property-search skill teaches multilingual purchase and rental conventions
   ]) assert.ok(skill.includes(phrase), `property-search skill should include ${phrase}`);
 });
 
+test('property-search skill covers buyer and renter guidance requested for stage 5', async () => {
+  const skill = await readFile(new URL('../skills/property-search/SKILL.md', import.meta.url), 'utf8');
+  for (const phrase of ['propertyTypes', 'ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'atelie-tavan', 'etazh-ot-kashta', 'kashta', 'vila', 'garazh-parkomyasto', 'ofis', 'magazin', 'zavedenie', 'sklad', 'promishleno-pomeshtenie', 'hotel', 'biznes-imot', 'partsel', 'staya', 'one-bedroom', 'двустаен', 'трёхкомнатная', 'новостройка', 'Акт 14', 'Акт 15', 'Акт 16', '±10%', 'auction', 'м-т Гърдова глава', 'в.з.Бояна', 'get_search_districts', 'area_context', 'lease term', 'Sofia municipality', 'safety', 'greenery', 'parks', 'schools', 'promoted-first', 'district']) {
+    assert.ok(skill.includes(phrase), `property-search skill should include ${phrase}`);
+  }
+});
+
 test('sample requests cover synthetic buy and rent searches in English, Bulgarian and Russian including Bankya', async () => {
   const samples = await readFile(new URL('../docs/sample-requests.md', import.meta.url), 'utf8');
   for (const phrase of ['English', 'Bulgarian', 'Russian', 'Bankya', 'Банкя', 'Банкя', 'sale', 'rent', 'priceMax']) {

@@ -67,18 +67,28 @@ test('resolves streets and neighbourhoods from synthetic municipal datasets with
   assert.ok(unresolved.uncertainty.some(item => /municipal address or neighbourhood datasets/.test(item)));
 });
 
-test('does not resolve duplicate eligible neighbourhood matches', () => {
+test('resolves duplicate same-name ЖК features to an area-weighted centroid', () => {
   const provenance = { name: 'Synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
   const result = resolveMunicipalLocation({ id: 'duplicate-district', location: { city: 'Sofia', district: 'Пример' } }, {
     addresses: [],
     districts: [
-      { name: 'КВ. ПРИМЕР', latitude: 42.7, longitude: 23.3, provenance },
-      { name: 'ЖК. ПРИМЕР', latitude: 42.71, longitude: 23.31, provenance },
+      { name: 'КВ. ПРИМЕР', latitude: 42.7, longitude: 23.3, geometry: { type: 'MultiPolygon', coordinates: [[[[23.29,42.69],[23.31,42.69],[23.31,42.71],[23.29,42.71],[23.29,42.69]]]] }, provenance },
+      { name: 'ЖК. ПРИМЕР', latitude: 42.71, longitude: 23.31, geometry: { type: 'MultiPolygon', coordinates: [[[[23.31,42.71],[23.33,42.71],[23.33,42.73],[23.31,42.73],[23.31,42.71]]]] }, provenance },
     ],
   });
-  assert.equal(result.coordinates, undefined);
+  assert.ok(result.coordinates);
   assert.equal(result.precision, 'neighbourhood');
-  assert.equal(result.source, 'unresolved');
+  assert.equal(result.source, provenance.name);
+});
+
+test('resolves synthetic duplicate Изгрев polygon features deterministically', () => {
+  const provenance = { name: 'Synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const result = resolveMunicipalLocation({ id: 'duplicate-izgrev', location: { city: 'Sofia', district: 'Изгрев' } }, { addresses: [], districts: [
+    { name: 'ЖК. ИЗГРЕВ', latitude: 42.7, longitude: 23.3, geometry: { type: 'MultiPolygon', coordinates: [[[[23.29,42.69],[23.31,42.69],[23.31,42.71],[23.29,42.71],[23.29,42.69]]]] }, provenance },
+    { name: 'КВ. ИЗГРЕВ', latitude: 42.72, longitude: 23.32, geometry: { type: 'MultiPolygon', coordinates: [[[[23.31,42.71],[23.33,42.71],[23.33,42.73],[23.31,42.73],[23.31,42.71]]]] }, provenance },
+  ] });
+  assert.ok(result.coordinates);
+  assert.notEqual(result.source, 'unresolved');
 });
 
 test('prefers estate features to similarly named parks and uses district address points without a polygon', () => {
@@ -426,6 +436,7 @@ test('area_context isolates source failures, deduplicates stops and bounds struc
     assert.equal(context.nearbyStops.items[0].sourceIds.length, 2);
     assert.equal(context.schedules.status, 'unavailable');
     assert.match(context.schedules.reason, /schedule fixture failure/);
+    assert.doesNotMatch(context.schedules.reason, /nearby stops cannot be established/i);
     assert.equal(context.municipalFeatures.status, 'unavailable');
     assert.match(context.municipalFeatures.reason, /routing fixture failure/);
     assert.equal(context.sourceMetadata.stops.length, 1);
