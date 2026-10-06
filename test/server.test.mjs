@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -387,6 +387,43 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+for (const scenario of [
+  { label: 'agency card and owner description', kind: 'agency', cardName: 'Агенция Измислен Пример', sellerType: 'Агенция', description: 'Измисленият имот се продава директно от собственик.' },
+  { label: 'private card and agency description', kind: 'private', cardName: 'Частно лице', sellerType: 'Частно лице', description: 'Измисленият имот се продава чрез агенция.' },
+]) {
+  test(`get_listing flags seller conflict for ${scenario.label} on fresh, cached and refreshed reads`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'imoti-seller-conflict-'));
+    const storage = openStorage(join(directory, 'test.db'));
+    const id = '1c100000000000091';
+    const url = `https://www.imot.bg/obiava-${id}-synthetic`;
+    const searchFixture = join(directory, 'search.html');
+    const detailFixture = join(directory, 'detail.html');
+    try {
+      await writeFile(searchFixture, `<div class="item" id="ida${id}"><a class="title" href="${url}">Продава 2-СТАЕН<location>град София, Изток</location></a><div class="seller"><div class="sInfo"><div class="name">${scenario.cardName}</div></div></div></div>`);
+      await writeFile(detailFixture, `<div class="advHeader"><div class="title">Продава 2-СТАЕН</div></div><div class="adPrice"><div class="price"><div class="cena">100 000 €</div></div></div><div class="dealer2023"><div class="sellerType">${scenario.sellerType}</div><div class="name">${scenario.cardName}</div></div><div class="moreInfo"><div class="text">${scenario.description}</div></div>`);
+      const adapter = new FixtureAdapter([
+        [/obiavi\/prodazhbi/, searchFixture],
+        [/obiava-/, detailFixture],
+      ]);
+      await withClient(createServer({ adapter, storage }), async client => {
+        const search = await client.callTool({ name: 'search_listings', arguments: { criteria: { maxPages: 1 }, limit: 10 } });
+        assert.equal(search.isError, undefined, search.content?.[0]?.text);
+        assert.deepEqual(search.structuredContent.listings[0].seller, { kind: scenario.kind, name: scenario.cardName });
+        const expectedSeller = { kind: scenario.kind, name: scenario.kind === 'agency' ? scenario.cardName : null, authority: 'detail', conflict: true };
+        for (const [arguments_, cached] of [[{ url }, false], [{ id }, true], [{ id, refresh: true }, false]]) {
+          const result = await client.callTool({ name: 'get_listing', arguments: arguments_ });
+          assert.equal(result.isError, undefined, result.content?.[0]?.text);
+          assert.equal(result.structuredContent.cached, cached);
+          assert.equal(result.structuredContent.listing.description, scenario.description);
+          assert.deepEqual(result.structuredContent.listing.seller, expectedSeller);
+          assert.equal(result.structuredContent.evidenceReconciliation.authority, 'detail');
+        }
+        assert.equal(adapter.requests.filter(request => request.includes('/obiava-')).length, 2, 'cached reads reuse detail evidence; refresh fetches it again');
+      });
+    } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}
 
 test('get_listing_photos returns ordered bounded metadata and does not persist image bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-'));
