@@ -354,7 +354,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           // Each page must finish parsing before an absent listing can be considered no longer observed.
           for (const url of built.urls) {
             const page = await adapter.fetchPage(url);
-            const parsedPage = parseSearchResults(page.html, url);
+            const parsedPage = parseSearchResults(page.html, page.url);
             if (parsedPage.nextPageUrl) complete = false;
             for (const item of parsedPage.listings) {
               if (!item.id || !item.url) continue;
@@ -469,7 +469,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           if (requestedPage > (criteria.startPage ?? 1) && paginationEnded.has(key)) continue;
           urls.push(url);
           const page = await adapter.fetchPage(url);
-          const parsed = parseSearchResults(page.html, url);
+          const parsed = parseSearchResults(page.html, page.url);
           pagesFetched++;
           pages.push({ pageUrl: url, pageNumber: parsed.pageNumber, totalCount: parsed.totalCount, nextPageUrl: parsed.nextPageUrl });
           if (!parsed.nextPageUrl) paginationEnded.add(key);

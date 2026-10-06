@@ -124,3 +124,14 @@ test('URL category types abbreviated industrial cards and overrides subtype-like
   const fallback = parseSearchResults('<div class="item" id="ida-office"><a class="title">Продава ОФИС</a></div>');
   assert.equal(fallback.listings[0].propertyType.slug, 'ofis');
 });
+
+test('every recognized URL category overrides a conflicting card label', async () => {
+  const html = await fixture('search-category-conflict.html');
+  for (const { slug } of propertyTypeCatalog) {
+    const page = parseSearchResults(html, `https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/${slug}/p-2?price_max=200000`);
+    assert.equal(page.listings[0].propertyType.slug, slug, `URL category ${slug} must override СКЛАД`);
+    assert.equal(page.listings[0].propertyType.label, 'СКЛАД');
+  }
+  const fallback = parseSearchResults(html, 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/p-2');
+  assert.deepEqual(fallback.listings[0].propertyType, { slug: 'sklad', label: 'СКЛАД', rooms: null });
+});

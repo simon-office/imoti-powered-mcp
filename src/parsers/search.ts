@@ -73,7 +73,7 @@ function parseItem(item: HTMLElement, base: string, categorySlug: string | null)
       .map(label => ({ type, label })))
     .sort((a, b) => b.label.length - a.label.length)
     .find(({ label }) => title?.toLocaleLowerCase().includes(label.toLocaleLowerCase()));
-  const typeMatch = categoryType?.slug === 'biznes-imot'
+  const typeMatch = categoryType
     ? { type: categoryType, label: titleTypeLabel || categoryType.cardLabel }
     : matchedType;
   const floorMatch = info.match(/(Партер|\d+\s*[-–]?\s*(?:ви|ри|ти|ми))(?:\s*ет\.?)*\s*(?:от\s*(\d+))?/i);
