@@ -1,4 +1,4 @@
-export type District = { slug: string; bg: string; latin: string };
+export type District = { slug: string; bg: string; latin: string; aliases?: readonly string[] };
 
 const districtNames = `Изток|Iztok
 Лозенец|Lozenets
@@ -58,23 +58,37 @@ const districtNames = `Изток|Iztok
 м-т Детски град|M-t Detski Grad
 7-ми 11-ти километър|7-mi 11-ti kilometar`;
 
-export const districts: District[] = districtNames.split('\n').map((line) => {
+const documentedExtraDistricts = `Младост 4|Mladost 4|mladost-4
+Студентски град|Studentski grad|studentski-grad
+Център|Tsentar|tsentar`;
+
+export const districts: readonly District[] = [...districtNames.split('\n').map((line) => {
   const [bg, latin] = line.split('|');
-  return { bg, latin, slug: latin.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') };
-});
+  const slug = latin.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return { bg, latin, slug, aliases: slug === 'gr-bankya' ? ['Bankya'] : undefined };
+}), ...documentedExtraDistricts.split('\n').map((line) => {
+  const [bg, latin, slug] = line.split('|');
+  return { bg, latin, slug, aliases: bg === 'Център' ? ['Centre', 'Center'] : undefined };
+})];
 
 export const propertyTypes = ['ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'atelie-tavan', 'etazh-ot-kashta', 'kashta', 'vila', 'garazh-parkomyasto', 'ofis', 'magazin', 'zavedenie', 'sklad', 'promishleno-pomeshtenie', 'hotel', 'biznes-imot', 'partsel'] as const;
 
 function normalize(value: string): string {
-  return value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]+/g, ' ').trim();
+  return value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^(?:гр\.?|с\.?|ж\s*\.?\s*к\.?|кв\.?)\s*/u, '').replace(/[\s-]+/g, ' ').trim();
 }
 
 export function resolveDistrict(value: string): District {
   const key = normalize(value);
-  const match = districts.find((district) => [district.bg, district.latin, district.slug].some((name) => normalize(name) === key));
+  const match = districts.find((district) => [district.bg, district.latin, district.slug, ...(district.aliases ?? [])].some((name) => normalize(name) === key));
   if (match) return match;
-  const closest = districts.map((district) => ({ district, score: Math.min(distance(key, normalize(district.bg)), distance(key, normalize(district.latin)), distance(key, normalize(district.slug))) })).sort((a, b) => a.score - b.score).slice(0, 3).map(({ district }) => district.latin);
-  throw new Error(`Unknown district "${value}". Closest known names: ${closest.join(', ')}`);
+  const closest = districts.map((district) => ({ district, score: Math.min(distance(key, normalize(district.bg)), distance(key, normalize(district.latin)), distance(key, normalize(district.slug)), ...(district.aliases ?? []).map(name => distance(key, normalize(name)))) })).sort((a, b) => a.score - b.score).slice(0, 3).map(({ district }) => `${district.latin} (${district.bg})`);
+  throw new Error(`Unknown district "${value}". Closest known names (Latin and Bulgarian): ${closest.join(', ')}`);
+}
+
+export function districtSuggestions(value: string, limit = 3): District[] {
+  const key = normalize(value);
+  return districts.map(district => ({ district, score: Math.min(distance(key, normalize(district.bg)), distance(key, normalize(district.latin)), distance(key, normalize(district.slug)), ...(district.aliases ?? []).map(name => distance(key, normalize(name)))) }))
+    .sort((a, b) => a.score - b.score).slice(0, limit).map(({ district }) => district);
 }
 
 function distance(a: string, b: string): number {

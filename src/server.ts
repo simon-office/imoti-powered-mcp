@@ -10,7 +10,7 @@ import { configuredSearchLimit, DEFAULT_SEARCH_MAX_PAGES, DEFAULT_SEARCH_MAX_RES
 import { buildSearchUrls, verifyFilters } from './search/url-builder.js';
 import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
-import { resolveDistrict } from './search/slugs.js';
+import { districts, districtSuggestions, resolveDistrict } from './search/slugs.js';
 import type { SofiaDataAdapter } from './adapter/sofia-data.js';
 import { resolveListingLocation, resolveMunicipalLocation, type MunicipalLocationDatasets } from './area/location.js';
 import type { NormalizedStop, NormalizedSchedule, NormalizedMunicipalFeature, NormalizedWalkingRoute } from './area/types.js';
@@ -352,17 +352,31 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       verification: z.object({ ok: z.boolean(), mismatches: z.array(z.record(z.string(), z.unknown())) }),
       listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()),
     });
+    server.registerTool('get_search_districts', {
+      description: 'List supported Sofia search districts with Bulgarian and Latin names and URL slugs.',
+      inputSchema: {},
+      outputSchema: z.object({ districts: z.array(z.object({ slug: z.string(), bg: z.string(), latin: z.string(), aliases: z.array(z.string()).optional() })) }),
+    }, async () => {
+      const catalog = districts.map(({ slug, bg, latin, aliases }) => ({ slug, bg, latin, ...(aliases ? { aliases: [...aliases] } : {}) }));
+      return { structuredContent: { districts: catalog }, content: [{ type: 'text' as const, text: catalog.map(item => `${item.bg} / ${item.latin} (${item.slug})`).join('\n') }] };
+    });
     server.registerTool('search_listings', {
       description: 'Search verified property listings in Sofia. Returns matching listings and filter verification.',
-      inputSchema: { criteria: searchToolCriteriaSchema, limit: z.number().int().min(MIN_SEARCH_MAX_RESULTS).max(MAX_SEARCH_MAX_RESULTS).default(defaultSearchResults) },
+      inputSchema: { criteria: searchToolCriteriaSchema.extend({ districts: z.array(z.string().describe(`Supported district names: ${districts.map(item => `${item.bg} / ${item.latin}`).join('; ')}`)).default([]) }), limit: z.number().int().min(MIN_SEARCH_MAX_RESULTS).max(MAX_SEARCH_MAX_RESULTS).default(defaultSearchResults) },
       outputSchema: searchOutput,
-    }, async ({ criteria, limit }) => {
+    }, async ({ criteria: requestedCriteria, limit }) => {
       try {
+        const invalidDistricts: string[] = [];
+        const criteria = { ...requestedCriteria, districts: requestedCriteria.districts.filter(name => {
+          try { resolveDistrict(name); return true; } catch { invalidDistricts.push(name); return false; }
+        }) };
+        if (invalidDistricts.length && criteria.districts.length === 0) return { isError: true, content: [{ type: 'text' as const, text: invalidDistricts.map(name => `${name}: ${districtSuggestions(name).map(item => `${item.latin} (${item.bg})`).join(', ')}`).join('\n') }] };
         const built = buildSearchUrls(criteria);
         const urls: string[] = [];
         const listings = new Map<string, Listing>();
         const sourceUrls = new Map<string, string>();
         const mismatches: Array<Record<string, unknown>> = [];
+        for (const district of invalidDistricts) mismatches.push({ filter: 'district', expected: district, observed: 'invalid district; omitted from search', suggestions: districtSuggestions(district).map(item => ({ bg: item.bg, latin: item.latin, slug: item.slug })) });
         let truncated = false;
         const observedAt = new Date().toISOString();
         for (const url of built.urls) {
@@ -410,7 +424,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           storage.recordObservation({ listingId: listing.id, observedAt, sourceUrl: sourceUrls.get(listing.id) ?? String(listing.url), raw: listing, normalized: listing });
         }
         const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts };
-        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}; filters ${output.verification.ok ? 'verified' : 'need review'}.` }] };
+        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}; filters ${output.verification.ok ? 'verified' : 'need review'}.${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });
 

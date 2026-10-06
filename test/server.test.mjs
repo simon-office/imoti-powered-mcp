@@ -46,6 +46,28 @@ test('search MCP schema uses validated environment collection defaults', async (
   }
 });
 
+test('district catalog is discoverable and mixed search districts retain valid entries with per-entry errors', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-district-catalog-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi\/grad-sofiya\/iztok/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const tools = await client.listTools();
+      assert.ok(tools.tools.some(tool => tool.name === 'get_search_districts'));
+      const catalog = await client.callTool({ name: 'get_search_districts', arguments: {} });
+      assert.ok(catalog.structuredContent.districts.some(item => item.slug === 'gr-bankya'));
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['Iztok', 'Madeup One', 'Madeup Two'] }, limit: 10 } });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      assert.equal(result.structuredContent.query.criteria.districts.length, 1);
+      assert.equal(result.structuredContent.query.urls.length, 3);
+      const invalid = result.structuredContent.verification.mismatches.filter(item => item.filter === 'district' && typeof item.expected === 'string');
+      assert.equal(invalid.length, 2);
+      assert.ok(invalid.some(item => item.expected === 'Madeup One'));
+      assert.ok(invalid.some(item => item.expected === 'Madeup Two'));
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('area_context distinguishes unresolved coordinates from no stops within the requested radius', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-area-reasons-'));
   const storage = openStorage(join(directory, 'test.db'));
@@ -713,7 +735,7 @@ test('tool errors explain protective screens and unknown districts without stack
   await withClient(unknown, async client => {
     const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['not-a-district'] } } });
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /Closest known names/);
+    assert.match(result.content[0].text, /[A-Z][A-Za-z 0-9]+ \([А-Яа-я 0-9]+\)/);
     assert.doesNotMatch(result.content[0].text, /at .*\.js:/);
   });
 });
