@@ -302,10 +302,14 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         ]).finally(() => { if (timeout) clearTimeout(timeout); });
         // Keep retained image payloads (including data later encoded for host assessment)
         // bounded independently of the three-reference page-size limit.
-        const photoByteBudget = 32 * 1024;
+        const perImageByteLimit = 200_000;
+        const photoByteBudget = 600_000;
         let acceptedPhotoBytes = 0;
         const page = retrievedPage.map(photo => {
           const size = photo.bytes?.byteLength ?? 0;
+          if (size > perImageByteLimit) {
+            return { listingId: photo.listingId, reference: photo.reference, mediaType: photo.mediaType, unavailableReason: `Photo omitted because it exceeds the ${perImageByteLimit}-byte per-image limit.` };
+          }
           if (size > photoByteBudget - acceptedPhotoBytes) {
             return { listingId: photo.listingId, reference: photo.reference, mediaType: photo.mediaType, unavailableReason: `Photo omitted because the per-call ${photoByteBudget}-byte budget would be exceeded.` };
           }

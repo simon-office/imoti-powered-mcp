@@ -85,8 +85,32 @@ test('photo body reader limits oversized stream delivery to the remaining byte c
     cancel() { cancelled = true; },
   });
   const result = await readPhotoBodyWithLimit(stream, 10);
-  assert.equal(result.bytes.byteLength, 10);
+  assert.equal(result.bytes.byteLength, 0);
   assert.equal(result.truncated, true);
-  assert.equal(bytesDelivered, 10);
+  assert.equal(bytesDelivered, 11);
   assert.equal(cancelled, true);
+  assert.equal(result.bytes.byteLength, 0, 'a partial image must not be returned as image content');
+});
+
+test('photo retrieval tries the 800px variant then the 280px thumbnail within its per-image cap', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  const references = ['one', 'two', 'three'].map(name => `https://imotstatic1.focus.bg/photosimotbg/a/b/big1/${name}.jpg`);
+  globalThis.fetch = async url => {
+    requested.push(String(url));
+    const path = String(url);
+    const number = path.endsWith('/one.jpg') ? 1 : path.endsWith('/two.jpg') ? 2 : 3;
+    const bytes = path.includes('/big/') ? new Uint8Array([150_000, 210_000, 250_000][number - 1]) : path.endsWith('/two.jpg') ? new Uint8Array(26_000) : new Uint8Array(41_000);
+    return new Response(bytes, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+  };
+  try {
+    const photos = await new PlaywrightAdapter().getListingPhotos('fake', references);
+    assert.deepEqual(requested, [
+      references[0].replace('/big1/', '/big/'),
+      references[1].replace('/big1/', '/big/'), references[1].replace('/big1/', '/'),
+      references[2].replace('/big1/', '/big/'), references[2].replace('/big1/', '/'),
+    ]);
+    assert.deepEqual(photos.map(photo => photo.bytes.byteLength), [150_000, 26_000, 41_000]);
+    assert.deepEqual(photos.map(photo => photo.reference), references);
+  } finally { globalThis.fetch = originalFetch; }
 });
