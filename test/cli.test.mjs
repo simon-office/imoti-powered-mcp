@@ -52,7 +52,8 @@ test('search environment limits apply as defaults and reject values over the doc
     const result = run(['search', '--fixtures', fixtureDir], directory, { IMOTI_SEARCH_MAX_RESULTS: '10', IMOTI_SEARCH_MAX_PAGES: '2' });
     assert.equal(result.status, 0, result.stderr);
     const saved = JSON.parse(await readFile(join(directory, 'last-search.json'), 'utf8'));
-    assert.equal(saved.listings.length, 4);
+    // Three promoted cards in this fixture are now separated from ordinary results.
+    assert.equal(saved.listings.length, 1);
     assert.equal(saved.query.criteria.maxPages, 2);
     const invalid = run(['search', '--fixtures', fixtureDir], directory, { IMOTI_SEARCH_MAX_RESULTS: '21' });
     assert.equal(invalid.status, 2);

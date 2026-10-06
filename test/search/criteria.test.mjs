@@ -16,15 +16,23 @@ test('criteria preserves the bounded default page limit and rejects values outsi
   assert.throws(() => searchCriteriaSchema.parse({ maxPages: 4 }));
 });
 
-test('builds a paginated URL per district using only verified price_max', () => {
+test('builds a fair type/district schedule with site-supported price bounds', () => {
   const result = buildSearchUrls(searchCriteriaSchema.parse({ deal: 'sale', districts: ['Изток', 'Lozenets'], rooms: { min: 3, max: 3 }, priceMin: 100, priceMax: 350000, areaMin: 60, areaMax: 120, maxPages: 2 }));
   assert.deepEqual(result.urls, [
-    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/tristaen?price_max=350000',
-    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/tristaen/p-2?price_max=350000',
-    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/lozenets/tristaen?price_max=350000',
-    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/lozenets/tristaen/p-2?price_max=350000',
+    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/tristaen?price_min=100&price_max=350000',
+    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/lozenets/tristaen?price_min=100&price_max=350000',
+    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/tristaen/p-2?price_min=100&price_max=350000',
+    'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/lozenets/tristaen/p-2?price_min=100&price_max=350000',
   ]);
-  assert.deepEqual(result.clientFilters, { priceMin: 100, areaMin: 60, areaMax: 120 });
+  assert.deepEqual(result.clientFilters, { areaMin: 60, areaMax: 120 });
+});
+
+test('schedules every requested type and district before later pages', () => {
+  const built = buildSearchUrls(searchCriteriaSchema.parse({ districts: ['iztok', 'lozenets'], propertyTypes: ['dvustaen', 'tristaen'], maxPages: 3 }));
+  assert.equal(built.urls.length, 12);
+  assert.deepEqual(built.urls.slice(0, 4).map(url => new URL(url).pathname.split('/').slice(4, 6)), [
+    ['iztok', 'dvustaen'], ['lozenets', 'dvustaen'], ['iztok', 'tristaen'], ['lozenets', 'tristaen'],
+  ]);
 });
 
 test('builds rent and no-district URLs', () => {
@@ -72,6 +80,13 @@ test('verifies breadcrumb and listing type for rooms-only criteria', () => {
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.mismatches.map(({ filter }) => filter), ['type', 'type']);
+});
+
+test('verification fails when requested district/type coverage is incomplete', () => {
+  const criteria = searchCriteriaSchema.parse({ districts: ['iztok', 'lozenets'], propertyTypes: ['dvustaen', 'tristaen'] });
+  const result = verifyFilters(criteria, { listings: [], coverage: { districts: ['iztok'], propertyTypes: ['dvustaen'] } });
+  assert.equal(result.ok, false);
+  assert.ok(result.mismatches.some(item => item.filter === 'coverage'));
 });
 
 test('house-type verification retains a house parsed from a synthetic house card', () => {

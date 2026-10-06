@@ -102,16 +102,18 @@ test('search_listings reports filter mismatches, client-filters results, and per
       assert.ok(tools.tools.some(tool => tool.name === 'search_listings'));
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 100000, districts: ['iztok'] }, limit: 10 } });
       assert.equal(result.isError, undefined, result.content?.[0]?.text);
-      assert.equal(result.structuredContent.listings.length, 1);
+      assert.equal(result.structuredContent.listings.length, 0, 'no cards from this fixture satisfy the requested filters');
+      assert.equal(result.structuredContent.excludedPromoted.length, 9, 'three fixture promoted cards are excluded from each of three fetched pages');
+      assert.ok(result.structuredContent.excludedPromoted.every(item => item.pageUrl && item.listing.promotedTier));
       assert.equal(result.structuredContent.verification.ok, false);
       assert.ok(Array.isArray(result.structuredContent.verification.mismatches));
       assert.ok(result.structuredContent.verification.mismatches.length > 0);
-      assert.ok(result.structuredContent.verification.mismatches.some(mismatch => mismatch.filter === 'district' && mismatch.observed === 'lozenets'));
+      assert.ok(result.structuredContent.excludedPromoted.some(item => item.pageUrl && item.listing.promotedTier), 'off-filter promoted cards are reported separately');
       assert.equal(result.structuredContent.query.criteria.priceMin, 100000);
       assert.ok(result.structuredContent.query.urls.length <= 3);
       assert.ok(result.structuredContent.observedAt);
-      assert.equal(storage.listObservations('1c100000000000001').length, 1);
-      assert.match(result.content[0].text, /Found 1 listing/);
+      assert.equal(storage.listObservations('1c100000000000001').length, 0, 'excluded cards are not persisted as returned search observations');
+      assert.match(result.content[0].text, /Found 0 listings/);
       const filtered = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 130000, districts: ['iztok'] }, limit: 10 } });
       assert.deepEqual(filtered.structuredContent.listings, []);
     });
@@ -126,7 +128,8 @@ test('search_listings defaults limit to 15 and rejects limits outside 10–20', 
     const server = createServer({ adapter, storage });
     await withClient(server, async client => {
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: {} } });
-      assert.equal(result.structuredContent.listings.length, 4);
+      assert.equal(result.structuredContent.listings.length, 1, 'off-filter promoted fixture cards are reported separately');
+      assert.equal(result.structuredContent.excludedPromoted.length, 9, 'three fixture promoted cards are excluded from each of three fetched pages');
       const invalid = await client.callTool({ name: 'search_listings', arguments: { criteria: {}, limit: 9 } });
       assert.equal(invalid.isError, true);
       assert.match(invalid.content[0].text, /limit/i);
@@ -698,7 +701,7 @@ for (const [name, criteria, expectedCount] of [
         assert.equal(result.structuredContent.verification.ok, true, JSON.stringify(result.structuredContent.verification.mismatches));
         assert.deepEqual(result.structuredContent.verification.mismatches, []);
         assert.match(result.content[0].text, /filters verified/);
-        assert.ok(result.structuredContent.query.urls.length <= (criteria.maxPages ?? 3) * (criteria.districts?.length ?? 1));
+        assert.ok(result.structuredContent.query.urls.length <= (criteria.maxPages ?? 3) * (criteria.districts?.length ?? 1) * (criteria.propertyTypes?.length || 1));
         for (const listing of result.structuredContent.listings) {
           assert.equal(storage.listObservations(listing.id).length, 1);
         }
@@ -707,7 +710,7 @@ for (const [name, criteria, expectedCount] of [
   });
 }
 
-test('search URL page budget applies across property types per district', async () => {
+test('search schedules every requested type before paging within each type', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
   const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
@@ -716,8 +719,8 @@ test('search URL page budget applies across property types per district', async 
     await withClient(server, async client => {
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok'], propertyTypes: ['dvustaen', 'kashta'], maxPages: 2 }, limit: 10 } });
       const urls = result.structuredContent.query.urls;
-      assert.equal(urls.length, 2);
-      assert.ok(urls.every(url => !url.includes('/p-')));
+      assert.equal(urls.length, 4);
+      assert.deepEqual(urls.map(url => new URL(url).pathname.split('/').slice(-2)), [['iztok', 'dvustaen'], ['iztok', 'kashta'], ['dvustaen', 'p-2'], ['kashta', 'p-2']]);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

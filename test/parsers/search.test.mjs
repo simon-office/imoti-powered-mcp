@@ -45,6 +45,12 @@ test('supports empty and final result pages and skips news or malformed items wi
   assert.equal(malformed.listings.length, 0);
 });
 
+test('parses site total count independently from the returned page', () => {
+  const page = parseSearchResults('<div class="SearchInfoLine">41 - 80 от общо 156 обяви - Продава</div>', 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/tristaen/p-2');
+  assert.equal(page.totalCount, 156);
+  assert.equal(page.pageNumber, 2);
+});
+
 test('parses each paid promotion tier from card classes and promo assets', async () => {
   const page = parseSearchResults('<div class="item BEST" id="ida1"><img class="promoLine" src="BEST-wrap.svg"><div class="info">1-ви ет. от 2</div></div><div class="item TOP" id="ida2"><img class="promoLine" src="TOP-wrap.svg"></div><div class="item VIP" id="ida3"><img class="promoLine" src="VIP-wrap.svg"></div><div class="item" id="ida4"></div>');
   assert.deepEqual(page.listings.map(({ promotedTier }) => promotedTier), ['BEST', 'TOP', 'VIP', null]);
