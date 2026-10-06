@@ -45,6 +45,12 @@ test('extracts only explicitly stated rental and sale facts with their exact sou
   assert.equal(parseListing('<div class="adPrice"><div class="price"></div></div>').facts.pets, null);
 });
 
+test('preserves no-buyer-commission negation and its exact source sentence', () => {
+  const sentence = 'Без комисиона от купувача';
+  const result = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${sentence}</div></div>`);
+  assert.deepEqual(result.facts.commission, { value: false, source: sentence });
+});
+
 test('recognizes all grammatical furnished forms, explicit pet prohibitions, and supported construction stages', () => {
   const cases = [
     ['Обзаведена квартира.', true], ['Обзаведено жилище.', true], ['Необзаведена стая.', false],
