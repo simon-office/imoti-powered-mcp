@@ -722,19 +722,30 @@ for (const [name, criteria, expectedCount] of [
   });
 }
 
-test('search schedules every requested type and district on page one and reports requested coverage', async () => {
+test('search returns fixture results for every requested type/district combination', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
-  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  const adapter = new FixtureAdapter([
+    [/\/iztok\/dvustaen(?:\/|$)/, new URL('./fixtures/search-iztok-dvustaen.html', import.meta.url)],
+    [/\/lozenets\/dvustaen(?:\/|$)/, new URL('./fixtures/search-lozenets-dvustaen.html', import.meta.url)],
+    [/\/iztok\/ednostaen(?:\/|$)/, new URL('./fixtures/search-iztok-ednostaen.html', import.meta.url)],
+    [/\/lozenets\/ednostaen(?:\/|$)/, new URL('./fixtures/search-lozenets-ednostaen.html', import.meta.url)],
+  ]);
   try {
     const server = createServer({ adapter, storage });
     await withClient(server, async client => {
-      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'], propertyTypes: ['dvustaen', 'kashta'], maxPages: 2 }, limit: 10 } });
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'], propertyTypes: ['dvustaen', 'ednostaen'], maxPages: 1 }, limit: 10 } });
       const urls = result.structuredContent.query.urls;
-      assert.equal(urls.length, 8);
-      assert.deepEqual(urls.slice(0, 4).map(url => new URL(url).pathname.split('/').slice(-2)), [['iztok', 'dvustaen'], ['lozenets', 'dvustaen'], ['iztok', 'kashta'], ['lozenets', 'kashta']]);
-      assert.deepEqual(result.structuredContent.coverage.propertyTypes.sort(), ['dvustaen', 'kashta']);
+      assert.equal(urls.length, 4);
+      assert.deepEqual(urls.map(url => new URL(url).pathname.split('/').slice(-2)), [['iztok', 'dvustaen'], ['lozenets', 'dvustaen'], ['iztok', 'ednostaen'], ['lozenets', 'ednostaen']]);
+      assert.deepEqual(result.structuredContent.coverage.propertyTypes.sort(), ['dvustaen', 'ednostaen']);
       assert.deepEqual(result.structuredContent.coverage.districts.sort(), ['iztok', 'lozenets']);
+      assert.deepEqual(result.structuredContent.listings.map(listing => [listing.location.district, listing.propertyType.slug]).sort(), [
+        ['Изток', 'dvustaen'], ['Изток', 'ednostaen'], ['Лозенец', 'dvustaen'], ['Лозенец', 'ednostaen'],
+      ]);
+      assert.equal(result.structuredContent.pagesFetched, 4);
+      assert.deepEqual(result.structuredContent.pages.map(page => page.pageNumber), [1, 1, 1, 1]);
+      assert.deepEqual(result.structuredContent.districtCounts, { iztok: 2, lozenets: 2 });
       assert.equal(result.structuredContent.verification.ok, true);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
