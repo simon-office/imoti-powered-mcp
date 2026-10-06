@@ -15,9 +15,10 @@ export function buildSearchUrls(criteria: SearchCriteria): { urls: string[]; cli
     ? [...new Map(criteria.districts.map(name => resolveDistrict(name)).map(district => [district.slug, district])).values()]
     : [null];
   const urls: string[] = [];
-  // Schedule every requested district/type pair on page one before paging
-  // any pair, so the bound cannot silently starve a requested category.
-  for (let page = 1; page <= criteria.maxPages; page++) {
+  // Schedule every requested district/type pair on the starting page before
+  // advancing any pair, so the bound cannot silently starve a category.
+  const startPage = criteria.startPage ?? 1;
+  for (let page = startPage; page < startPage + criteria.maxPages; page++) {
     for (const type of types) for (const district of districts) {
       const path = ['https://www.imot.bg/obiavi', criteria.deal === 'sale' ? 'prodazhbi' : 'naemi', 'grad-sofiya', district?.slug, type].filter(Boolean).join('/');
       const params = new URLSearchParams();

@@ -914,6 +914,46 @@ test('search_listings round-robins requested types before applying the limit', a
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('search_listings round-robins candidates across pages and reports contributing pages', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-page-spread-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const page = pageNumber => `<!doctype html><html><body>${Array.from({ length: 12 }, (_, index) => {
+    const id = `1c${pageNumber}${String(index + 1).padStart(14, '0')}`;
+    return `<div class="item" id="ida${id}"><div class="text"><div class="zaglavie"><a class="title" href="/obiava-${id}-invented">Продава 3-СТАЕН <location>град София</location></a></div><div class="price">${100 + index} 000 €</div></div><div class="info">${50 + index} кв.м, invented details</div></div>`;
+  }).join('')}</body></html>`;
+  const adapter = { fetchPage: async url => ({ html: page(Number(new URL(url).pathname.match(/p-(\d+)/)?.[1] ?? 1)), url, status: 200, fetchedAt: new Date() }), close: async () => {} };
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { startPage: 2 }, limit: 10 } });
+      assert.equal(result.structuredContent.listings.length, 10);
+      assert.deepEqual(result.structuredContent.contributingPages, [2, 3, 4]);
+      assert.equal(result.structuredContent.pagesFetched, 3);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search_listings spreads results beyond an overfull first page by default', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-default-page-spread-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const page = pageNumber => `<!doctype html><html><body>${Array.from({ length: 12 }, (_, index) => {
+    const id = `1c${pageNumber}${String(index + 1).padStart(14, '0')}`;
+    return `<div class="item" id="ida${id}"><div class="text"><div class="zaglavie"><a class="title" href="/obiava-${id}-invented">Продава 3-СТАЕН <location>град София</location></a></div><div class="price">${100 + index} 000 €</div></div><div class="info">${50 + index} кв.м, invented details</div></div>`;
+  }).join('')}</body></html>`;
+  const adapter = { fetchPage: async url => ({ html: page(Number(new URL(url).pathname.match(/p-(\d+)/)?.[1] ?? 1)), url, status: 200, fetchedAt: new Date() }), close: async () => {} };
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: {}, limit: 10 } });
+      const listings = result.structuredContent.listings;
+      assert.equal(listings.length, 10);
+      assert.ok(listings.some(item => item.id.startsWith('1c2')), 'page 2 contributes distinct candidates');
+      assert.ok(listings.some(item => item.id.startsWith('1c3')), 'page 3 contributes distinct candidates');
+      assert.deepEqual(result.structuredContent.contributingPages, [1, 2, 3]);
+      assert.deepEqual([...new Set(listings.map(item => Number(item.id.slice(2, 3))))], [1, 2, 3]);
+      assert.equal(result.structuredContent.pagesFetched, 3);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('search_listings verifies matching requested deal and city filters', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
