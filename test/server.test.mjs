@@ -680,6 +680,18 @@ test('search_listings verifies matching requested deal and city filters', async 
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('search output retains pagination metadata for every fetched page', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-search-pages-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-iztok-matching.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok'], maxPages: 1 }, limit: 10 } });
+      assert.deepEqual(result.structuredContent.pages.map(({ pageNumber, totalCount, nextPageUrl, pageUrl }) => ({ pageNumber, totalCount, nextPageUrl, pageUrl })), [{ pageNumber: 1, totalCount: 12, nextPageUrl: 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/tristaen/p-2', pageUrl: result.structuredContent.query.urls[0] }]);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 for (const [name, criteria, expectedCount] of [
   ['a matching district', { districts: ['Изток'] }, 1],
   ['matching districts and property types', { districts: ['iztok', 'lozenets'], propertyTypes: ['tristaen', 'dvustaen'], maxPages: 2 }, 2],
@@ -710,17 +722,62 @@ for (const [name, criteria, expectedCount] of [
   });
 }
 
-test('search schedules every requested type before paging within each type', async () => {
+test('search schedules every requested type and district on page one and reports requested coverage', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
   const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
   try {
     const server = createServer({ adapter, storage });
     await withClient(server, async client => {
-      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok'], propertyTypes: ['dvustaen', 'kashta'], maxPages: 2 }, limit: 10 } });
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'], propertyTypes: ['dvustaen', 'kashta'], maxPages: 2 }, limit: 10 } });
       const urls = result.structuredContent.query.urls;
-      assert.equal(urls.length, 4);
-      assert.deepEqual(urls.map(url => new URL(url).pathname.split('/').slice(-2)), [['iztok', 'dvustaen'], ['iztok', 'kashta'], ['dvustaen', 'p-2'], ['kashta', 'p-2']]);
+      assert.equal(urls.length, 8);
+      assert.deepEqual(urls.slice(0, 4).map(url => new URL(url).pathname.split('/').slice(-2)), [['iztok', 'dvustaen'], ['lozenets', 'dvustaen'], ['iztok', 'kashta'], ['lozenets', 'kashta']]);
+      assert.deepEqual(result.structuredContent.coverage.propertyTypes.sort(), ['dvustaen', 'kashta']);
+      assert.deepEqual(result.structuredContent.coverage.districts.sort(), ['iztok', 'lozenets']);
+      assert.equal(result.structuredContent.verification.ok, true);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('exact room-count searches report their derived property type in coverage', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-derived-coverage-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-iztok-matching.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { rooms: { min: 3, max: 3 }, districts: ['iztok'], maxPages: 1 }, limit: 10 } });
+      assert.deepEqual(result.structuredContent.coverage.propertyTypes, ['tristaen']);
+      assert.equal(result.structuredContent.verification.ok, true);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('a matching returned listing verifies while an off-filter promoted card is reported separately', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-matching-promotion-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-broad-districts.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 100000, maxPages: 1 }, limit: 10 } });
+      assert.equal(result.structuredContent.listings.length, 2);
+      assert.equal(result.structuredContent.excludedPromoted.length, 1);
+      assert.ok(result.structuredContent.excludedPromoted.every(({ pageUrl }) => pageUrl));
+      assert.equal(result.structuredContent.verification.ok, true, JSON.stringify(result.structuredContent.verification.mismatches));
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('broad district search returns synthetic results beyond the initial alphabetical districts', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-broad-districts-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-broad-districts.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['7-mi-11-ti-kilometar', 'zaharna-fabrika'], propertyTypes: ['tristaen'], maxPages: 1 }, limit: 10 } });
+      assert.deepEqual(result.structuredContent.listings.map(item => item.location.district).sort(), ['7-ми 11-ти километър', 'Захарна фабрика']);
+      assert.deepEqual(result.structuredContent.coverage.districts.sort(), ['7-mi-11-ti-kilometar', 'zaharna-fabrika']);
+      assert.equal(result.structuredContent.verification.ok, true);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

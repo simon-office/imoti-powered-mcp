@@ -10,7 +10,7 @@ import { configuredSearchLimit, DEFAULT_SEARCH_MAX_PAGES, DEFAULT_SEARCH_MAX_RES
 import { buildSearchUrls, verifyFilters } from './search/url-builder.js';
 import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
-import { districts, districtSuggestions, resolveDistrict } from './search/slugs.js';
+import { districts, districtSuggestions, resolveDistrict, roomCountToPropertyType } from './search/slugs.js';
 import type { SofiaDataAdapter } from './adapter/sofia-data.js';
 import { resolveListingLocation, resolveMunicipalLocation, type MunicipalLocationDatasets } from './area/location.js';
 import type { NormalizedStop, NormalizedSchedule, NormalizedMunicipalFeature, NormalizedWalkingRoute } from './area/types.js';
@@ -351,7 +351,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       query: z.object({ urls: z.array(z.string()), criteria: z.record(z.string(), z.unknown()) }),
       verification: z.object({ ok: z.boolean(), mismatches: z.array(z.record(z.string(), z.unknown())) }),
       listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()),
-      pagesFetched: z.number(), coverage: z.object({ districts: z.array(z.string()), propertyTypes: z.array(z.string()) }), excludedPromoted: z.array(z.object({ listing: z.record(z.string(), z.unknown()), pageUrl: z.string() })),
+      pagesFetched: z.number(), pages: z.array(z.object({ pageUrl: z.string(), pageNumber: z.number(), totalCount: z.number().nullable(), nextPageUrl: z.string().nullable() })), coverage: z.object({ districts: z.array(z.string()), propertyTypes: z.array(z.string()) }), excludedPromoted: z.array(z.object({ listing: z.record(z.string(), z.unknown()), pageUrl: z.string() })),
     });
     server.registerTool('get_search_districts', {
       description: 'List supported Sofia search districts with Bulgarian and Latin names and URL slugs.',
@@ -383,12 +383,14 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         for (const district of invalidDistricts) mismatches.push({ filter: 'district', expected: district, observed: 'invalid district; omitted from search', suggestions: districtSuggestions(district).map(item => ({ bg: item.bg, latin: item.latin, slug: item.slug })) });
         let truncated = false;
         let pagesFetched = 0;
+        const pages: Array<{ pageUrl: string; pageNumber: number; totalCount: number | null; nextPageUrl: string | null }> = [];
         const observedAt = new Date().toISOString();
         for (const url of built.urls) {
           urls.push(url);
           const page = await adapter.fetchPage(url);
           const parsed = parseSearchResults(page.html, url);
           pagesFetched++;
+          pages.push({ pageUrl: url, pageNumber: parsed.pageNumber, totalCount: parsed.totalCount, nextPageUrl: parsed.nextPageUrl });
           // SearchPage exposes listing evidence, so use this page's URL for query-level filters.
           const path = new URL(page.url).pathname.split('/').filter(Boolean);
           const verification = verifyFilters(criteria, { appliedFilters: {
@@ -407,7 +409,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           mismatches.push(...verification.mismatches.filter(item => item.filter !== 'district' && item.filter !== 'type'));
           const pathParts = new URL(url).pathname.split('/').filter(Boolean);
           if (criteria.districts.length) coveredDistricts.add(pathParts[3]);
-          if (criteria.propertyTypes.length) coveredTypes.add(pathParts[criteria.districts.length ? 4 : 3]);
+          if (criteria.propertyTypes.length || criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max) coveredTypes.add(pathParts[criteria.districts.length ? 4 : 3]);
           for (const item of parsed.listings) {
             if (!item.id || !item.url) continue;
             const itemCheck = verifyFilters(criteria, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] });
@@ -439,9 +441,10 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           storage.recordObservation({ listingId: listing.id, observedAt, sourceUrl: sourceUrls.get(listing.id) ?? String(listing.url), raw: listing, normalized: listing });
         }
         const coverage = { districts: [...coveredDistricts], propertyTypes: [...coveredTypes] };
-        const expectedTypes = criteria.propertyTypes.length ? criteria.propertyTypes : [];
+        const exactRoomType = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? roomCountToPropertyType(criteria.rooms.min) : undefined;
+        const expectedTypes = criteria.propertyTypes.length ? criteria.propertyTypes : exactRoomType ? [exactRoomType] : [];
         if (criteria.districts.some(name => !coveredDistricts.has(resolveDistrict(name).slug)) || expectedTypes.some(type => !coveredTypes.has(type))) mismatches.push({ filter: 'coverage', expected: { districts: criteria.districts.map(name => resolveDistrict(name).slug), propertyTypes: expectedTypes }, observed: coverage });
-        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, pagesFetched, coverage, excludedPromoted };
+        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, pagesFetched, pages, coverage, excludedPromoted };
         return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}; filters ${output.verification.ok ? 'verified' : 'need review'}.${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });
