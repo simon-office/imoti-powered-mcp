@@ -57,12 +57,12 @@ function sourcedFacts(description: string | null, vatNote: string | null): Listi
     return source ? { value: value(source), source } : null;
   };
   return {
-    furnished: pick(/обзаведен|мебелиран|необзаведен|без мебели/i, sentence => !/необзаведен|без мебели/i.test(sentence)),
-    pets: pick(/домашни любимци|животни/i, sentence => !/не се допускат|забранени|без животни/i.test(sentence)),
+    furnished: pick(/обзаведен[ао]?|мебелиран[ао]?|необзаведен[ао]?|без мебели/i, sentence => !/необзаведен[ао]?|без мебели/i.test(sentence)),
+    pets: pick(/домашни любимци|животни/i, sentence => !/(?:не\s+(?:се\s+)?(?:допускат|разрешават)|не допуска|забранени|без)\s+(?:домашни любимци|животни)/i.test(sentence)),
     deposit: pick(/депозит|гаранционна сума/i, sentence => sentence.replace(/[.!?]+$/, '').replace(/^.*?(?:депозит[а-яА-Я]*|гаранционна сума)\s*(?:е|:|от|в размер на)?\s*/i, '').trim() || sentence.replace(/[.!?]+$/, '')),
     commission: pick(/комисион|комисиона/i, sentence => sentence.replace(/[.!?]+$/, '').replace(/^.*?комисион[а-яА-Я]*\s*(?:е|:|от|в размер на)?\s*/i, '').trim() || sentence.replace(/[.!?]+$/, '')),
     utilities: pick(/ток|електроенерг|вода|отоплен|комуналн/i),
-    newBuildStage: pick(/акт\s*(?:14|15|16)|в процес на строителство|строи се|в строеж/i, sentence => sentence.match(/акт\s*(?:14|15|16)|под строителство|в строеж|строи се/i)?.[0] ?? 'under construction'),
+    newBuildStage: pick(/акт\s*(?:14|15|16)|в процес на строителство|строи се|в строеж/i, sentence => sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction'),
     auction: pick(/търг|наддаван|аукцион/i, sentence => !/не се предлага.*търг/i.test(sentence)),
     vat: vatNote ? { value: vatNote, source: vatNote } : pick(/ддс|vat/i),
   };

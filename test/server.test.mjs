@@ -162,7 +162,7 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
     [url, new URL('./fixtures/listing-street.html', import.meta.url)],
     [unavailableUrl, new URL('./fixtures/listing-removed.html', import.meta.url)],
   ]);
-  storage.recordObservation({ listingId: '1c100000000000001', observedAt: new Date().toISOString(), sourceUrl: 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya', raw: {}, normalized: { id: '1c100000000000001', priceLowered: true, seller: { kind: 'agency', name: 'Картична Агенция' }, location: { district: 'Другаде', precision: 'neighbourhood' } } });
+  storage.recordObservation({ listingId: '1c100000000000001', observedAt: new Date().toISOString(), sourceUrl: 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya', raw: {}, normalized: { id: '1c100000000000001', priceLowered: true, seller: { kind: 'agency', name: 'Картична Агенция' }, location: { city: 'Друг Град', district: 'Другаде', street: null, precision: 'neighbourhood' } } });
   try {
     const server = createServer({ adapter, storage });
     await withClient(server, async client => {
@@ -170,6 +170,8 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
       assert.equal(first.structuredContent.status, undefined);
       assert.equal(first.structuredContent.evidenceReconciliation.authority, 'detail');
       assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'priceLowered'));
+      assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'seller'));
+      assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'location'));
       assert.equal(adapter.requests.length, 1);
       await client.callTool({ name: 'get_listing', arguments: { id: '1c100000000000001' } });
       assert.equal(adapter.requests.length, 1);
