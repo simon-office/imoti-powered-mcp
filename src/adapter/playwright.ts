@@ -38,21 +38,22 @@ export async function fetchPhotosWithLimit<T>(references: string[], fetchPhoto: 
   return results;
 }
 
-export async function readPhotoBodyWithLimit(stream: ReadableStream<Uint8Array> | null, byteLimit: number): Promise<Uint8Array> {
-  if (!stream) return new Uint8Array();
-  const reader = stream.getReader();
+export async function readPhotoBodyWithLimit(stream: ReadableStream<Uint8Array> | null, byteLimit: number): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  if (!stream) return { bytes: new Uint8Array(), truncated: false };
+  const reader = stream.getReader({ mode: 'byob' });
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let truncated = false;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
+    while (total < byteLimit) {
+      const { done, value } = await reader.read(new Uint8Array(byteLimit - total));
       if (done) break;
-      if (value.byteLength > byteLimit - total) {
-        await reader.cancel('Photo byte limit exceeded');
-        throw new RangeError(`Photo exceeds the per-call byte limit of ${byteLimit}`);
-      }
       chunks.push(value);
       total += value.byteLength;
+    }
+    if (total === byteLimit) {
+      truncated = true;
+      await reader.cancel('Photo byte limit reached');
     }
   } finally {
     reader.releaseLock();
@@ -63,7 +64,7 @@ export async function readPhotoBodyWithLimit(stream: ReadableStream<Uint8Array> 
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return bytes;
+  return { bytes, truncated };
 }
 
 export function assertPageCapacity(pagesFetched: number, maxPages = DEFAULT_MAX_PAGES): void {
@@ -131,9 +132,15 @@ export class PlaywrightAdapter implements SiteAdapter {
           await response.body?.cancel('Photo byte limit exceeded');
           return { listingId, reference, mediaType, unavailableReason: 'Photo exceeds the per-call 32768-byte budget.' };
         }
-        const bytes = await readPhotoBodyWithLimit(response.body, 32 * 1024 - acceptedBytes);
-        acceptedBytes += bytes.byteLength;
-        return { listingId, reference, mediaType, bytes };
+        const result = await readPhotoBodyWithLimit(response.body, 32 * 1024 - acceptedBytes);
+        acceptedBytes += result.bytes.byteLength;
+        return {
+          listingId,
+          reference,
+          mediaType,
+          bytes: result.bytes,
+          ...(result.truncated ? { unavailableReason: 'Photo retrieval stopped at the per-call 32768-byte budget; the image may be truncated.' } : {}),
+        };
       } catch (error) {
         return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: error instanceof Error ? error.message : 'Image could not be retrieved.' };
       }

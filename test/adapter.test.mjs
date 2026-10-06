@@ -69,17 +69,24 @@ test('photo retrieval limits concurrent requests to three', async () => {
   assert.equal(maximum, 3);
 });
 
-test('photo body reader cancels before retaining bytes beyond its cap', async () => {
-  let bytesRead = 0;
+test('photo body reader limits oversized stream delivery to the remaining byte cap', async () => {
+  let bytesDelivered = 0;
   let cancelled = false;
   const stream = new ReadableStream({
+    type: 'bytes',
     pull(controller) {
-      controller.enqueue(new Uint8Array(8));
-      bytesRead += 8;
+      const view = controller.byobRequest?.view;
+      if (!view) throw new Error('expected a bounded BYOB read');
+      const delivered = Math.min(view.byteLength, 16 - bytesDelivered);
+      view.set(new Uint8Array(delivered));
+      bytesDelivered += delivered;
+      controller.byobRequest.respond(delivered);
     },
     cancel() { cancelled = true; },
   });
-  await assert.rejects(readPhotoBodyWithLimit(stream, 10), /byte limit of 10/);
-  assert.equal(bytesRead, 16);
+  const result = await readPhotoBodyWithLimit(stream, 10);
+  assert.equal(result.bytes.byteLength, 10);
+  assert.equal(result.truncated, true);
+  assert.equal(bytesDelivered, 10);
   assert.equal(cancelled, true);
 });
