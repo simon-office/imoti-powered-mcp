@@ -1,4 +1,5 @@
 import { HTMLElement, parse } from 'node-html-parser';
+import { redactContactText } from './redaction.js';
 
 export type ListingDetails = {
   id: string | null; url: string | null; title: string | null; dealType: 'sale' | 'rent' | 'unknown';
@@ -45,9 +46,7 @@ function truth(value: string | null): boolean | null {
 
 export function sanitizeListingText(value: string | null): string | null {
   if (value === null) return null;
-  return value
-    .replace(/[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[redacted]')
-    .replace(/(?<!\w)\+?\d[\d\s()./-]{5,}\d(?!\w)/g, '[redacted]');
+  return redactContactText(value);
 }
 
 export function parseListing(input: string | Uint8Array, url?: string): ListingDetails | Unavailable {
