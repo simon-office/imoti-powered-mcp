@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { resolvePropertyType } from './slugs.js';
 
 /** Site-search page bounds preserve the existing polite three-page cap. */
 export const DEFAULT_SEARCH_MAX_PAGES = 3;
@@ -23,7 +24,7 @@ export const searchCriteriaSchema = z.object({
   deal: z.enum(['sale', 'rent']).default('sale'),
   city: z.string().default('sofia'),
   districts: z.array(z.string()).default([]),
-  propertyTypes: z.array(z.string()).default([]),
+  propertyTypes: z.array(z.string().transform(value => resolvePropertyType(value).slug)).default([]),
   rooms: boundsSchema.optional(),
   priceMin: z.number().nonnegative().optional(),
   priceMax: z.number().positive().optional(),

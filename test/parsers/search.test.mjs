@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { parseSearchResults } from '../../dist/parsers/search.js';
+import { propertyTypeCatalog } from '../../dist/search/slugs.js';
 
 const fixture = (name) => readFile(new URL(`../fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -14,7 +15,7 @@ test('parses the synthetic result items and every listing summary field', async 
   assert.equal(page.nextPageUrl, 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/tristaen/p-2');
   assert.deepEqual(page.listings[0], {
     id: '1c100000000000001', url: 'https://www.imot.bg/obiava-1c100000000000001-izmislena-oferta', title: 'Продава 3-СТАЕН', dealType: 'sale',
-    propertyType: { label: '3-СТАЕН', rooms: 3 }, price: { amount: 125000, currency: 'EUR' }, priceLowered: false,
+    propertyType: { slug: 'tristaen', label: '3-СТАЕН', rooms: 3 }, price: { amount: 125000, currency: 'EUR' }, priceLowered: false,
     areaM2: 82, floor: 4, floorsTotal: 8, heating: 'ТЕЦ', construction: 'Тухла',
     location: { city: 'град София', district: 'Изток', raw: 'град София, Изток' },
     seller: { kind: 'agency', name: 'Агенция Пример' }, photoCount: 3, promotedTier: 'BEST',
@@ -69,4 +70,13 @@ test('decodes windows-1251 result bytes', async () => {
 test('redacts phone numbers from seller names and card free-text fields', () => {
   const page = parseSearchResults('<div class="item" id="ida-fake"><a class="title" href="/obiava-fake">Продава апартамент 0888 123 456</a><div class="info">ул. Фалшива 0888 123 456</div><div class="seller"><div class="name">Агенция Пример 02/123-45-67</div></div></div>');
   assert.doesNotMatch(JSON.stringify(page), /0888\s*123\s*456|02\/123-45-67/);
+});
+
+test('parses all catalog property categories from synthetic cards including both garage labels', () => {
+  const html = propertyTypeCatalog.map((type, index) => {
+    const label = type.slug === 'garazh-parkomyasto' ? (index % 2 ? 'ПАРКОМЯСТО' : 'ГАРАЖ') : type.cardLabel;
+    return `<div class="item" id="ida-fake-${index}"><a class="title" href="/obiava-fake-${index}">Продава ${label}</a></div>`;
+  }).join('');
+  const listings = parseSearchResults(html).listings;
+  assert.deepEqual(listings.map(({ propertyType }) => propertyType?.slug), propertyTypeCatalog.map(({ slug }) => slug));
 });

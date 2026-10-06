@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSearchUrls, verifyFilters } from '../../dist/search/url-builder.js';
 import { searchCriteriaSchema } from '../../dist/search/criteria.js';
-import { resolveDistrict, roomCountToPropertyType } from '../../dist/search/slugs.js';
+import { propertyTypeCatalog, resolveDistrict, roomCountToPropertyType } from '../../dist/search/slugs.js';
+import { parseSearchResults } from '../../dist/parsers/search.js';
 
 test('criteria defaults deal, city and page limit', () => {
   assert.deepEqual(searchCriteriaSchema.parse({}), { deal: 'sale', city: 'sofia', districts: [], propertyTypes: [], maxPages: 3 });
@@ -28,6 +29,14 @@ test('builds a paginated URL per district using only verified price_max', () => 
 
 test('builds rent and no-district URLs', () => {
   assert.deepEqual(buildSearchUrls(searchCriteriaSchema.parse({ deal: 'rent', propertyTypes: ['dvustaen'], maxPages: 1 })).urls, ['https://www.imot.bg/obiavi/naemi/grad-sofiya/dvustaen']);
+});
+
+test('accepts documented property slugs and Bulgarian labels, rejects unknown categories', () => {
+  for (const type of propertyTypeCatalog) {
+    assert.equal(searchCriteriaSchema.parse({ propertyTypes: [type.slug] }).propertyTypes[0], type.slug);
+    assert.equal(searchCriteriaSchema.parse({ propertyTypes: [type.bg] }).propertyTypes[0], type.slug);
+  }
+  assert.throws(() => buildSearchUrls(searchCriteriaSchema.parse({ propertyTypes: ['spaceship'] })), /Unknown property type/i);
 });
 
 test('resolves district names independent of case, accents and spacing', () => {
@@ -63,4 +72,15 @@ test('verifies breadcrumb and listing type for rooms-only criteria', () => {
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.mismatches.map(({ filter }) => filter), ['type', 'type']);
+});
+
+test('house-type verification retains a house parsed from a synthetic house card', () => {
+  const criteria = searchCriteriaSchema.parse({ propertyTypes: ['kashta'] });
+  const parsedPage = parseSearchResults('<div class="item" id="ida-fake-house"><div class="zaglavie"><a class="title" href="/obiava-fake-house">Продава КЪЩА</a></div></div>');
+
+  assert.equal(parsedPage.listings[0].propertyType.slug, 'kashta');
+  assert.deepEqual(verifyFilters(criteria, {
+    appliedFilters: { deal: 'Продава', city: 'град София', type: 'КЪЩА' },
+    listings: parsedPage.listings,
+  }), { ok: true, mismatches: [] });
 });

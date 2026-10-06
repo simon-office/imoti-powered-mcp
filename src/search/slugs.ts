@@ -221,7 +221,21 @@ export const propertyTypeCatalog = [
   { slug: 'partsel', bg: 'парцел', cardLabel: 'ПАРЦЕЛ', deals: ['sale'] },
   { slug: 'staya', bg: 'стая', cardLabel: 'СТАЯ', deals: ['rent'] },
 ] as const;
-export const propertyTypes = propertyTypeCatalog.map(({ slug }) => slug) as unknown as readonly string[];
+export type PropertyTypeSlug = typeof propertyTypeCatalog[number]['slug'];
+export const propertyTypes: readonly PropertyTypeSlug[] = propertyTypeCatalog.map(({ slug }) => slug);
+
+function normalizePropertyType(value: string): string {
+  return value.toLocaleLowerCase().replace(/[\s,.-]+/g, '').replace(/ё/g, 'е');
+}
+
+export function resolvePropertyType(value: string): (typeof propertyTypeCatalog)[number] {
+  const key = normalizePropertyType(value);
+  const match = propertyTypeCatalog.find(type => [type.slug, type.bg, type.cardLabel,
+    ...(type.slug === 'garazh-parkomyasto' ? ['ГАРАЖ', 'ПАРКОМЯСТО'] : [])]
+    .some(name => normalizePropertyType(name) === key));
+  if (match) return match;
+  throw new Error(`Unknown property type "${value}". Use a documented property slug or Bulgarian label.`);
+}
 
 function normalize(value: string): string {
   return value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^(?:гр\.?|с\.?|ж\s*\.?\s*к\.?|zh\s*\.?\s*k\.?|кв\.?)\s*/u, '').replace(/[\s-]+/g, ' ').trim();
