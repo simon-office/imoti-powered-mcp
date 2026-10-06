@@ -12,6 +12,8 @@ export interface NormalizedStop {
   name: string;
   latitude: number;
   longitude: number;
+  mode?: 'tram' | 'metro' | 'rail' | 'bus' | 'ferry' | 'cableway' | 'gondola' | 'funicular' | 'trolleybus' | 'monorail' | 'unknown';
+  routeTypes?: number[];
   provenance: DataSourceProvenance;
 }
 

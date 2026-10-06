@@ -281,6 +281,14 @@ test('fixture adapter normalizes GTFS-shaped stop fields and numeric coordinates
   }]);
 });
 
+test('fixture adapter derives transit mode from GTFS route_type provenance', async () => {
+  const provenance = { name: 'Synthetic GTFS', sourceUrl: 'https://fixture.test/gtfs', datasetDate: 'synthetic', checkedAt: '2026-01-01', reuseTerms: 'Synthetic' };
+  const adapter = new FixtureSofiaDataAdapter({ stops: [{ stop_id: 'metro-stop', stop_name: 'Imaginary Metro', stop_lat: '42.7', stop_lon: '23.3', route_type: '1', provenance }] });
+  const [stop] = await adapter.getStops();
+  assert.equal(stop.mode, 'metro');
+  assert.deepEqual(stop.routeTypes, [1]);
+});
+
 test('source documentation cites the official GTFS feed, validity dates and conflicting reuse evidence', async () => {
   const doc = await readFile(new URL('../docs/data-sources.md', import.meta.url), 'utf8');
   assert.ok(doc.includes('https://gtfs.sofiatraffic.bg/api/v1/static'));
