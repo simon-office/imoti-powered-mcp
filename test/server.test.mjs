@@ -213,7 +213,7 @@ test('search_listings defaults limit to 15 and rejects limits outside 10–20', 
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test('broad searches retain matching promoted cards and report off-filter cards with their page URL', async () => {
+test('broad searches retain matching promoted cards and count promoted type-filter omissions separately', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-broad-promoted-'));
   const storage = openStorage(join(directory, 'test.db'));
   const adapter = new FixtureAdapter([[/obiavi\/prodazhbi\/grad-sofiya\/tristaen/, new URL('./fixtures/search-broad-promoted.html', import.meta.url)]]);
@@ -221,13 +221,41 @@ test('broad searches retain matching promoted cards and report off-filter cards 
     await withClient(createServer({ adapter, storage }), async client => {
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia', propertyTypes: ['tristaen'], priceMax: 160000, maxPages: 1 }, limit: 10 } });
       assert.deepEqual(result.structuredContent.listings.map(item => item.id), ['1c100000000000081'], JSON.stringify({ mismatches: result.structuredContent.verification.mismatches, excluded: result.structuredContent.excludedPromoted }));
-      assert.equal(result.structuredContent.excludedPromoted.length, 1);
-      assert.equal(result.structuredContent.excludedPromoted[0].listing.id, '1c100000000000082');
-      assert.equal(result.structuredContent.excludedPromoted[0].pageUrl, result.structuredContent.pages[0].pageUrl);
+      assert.equal(result.structuredContent.excludedPromoted.length, 0, 'type-only promoted mismatches are counted as type omissions');
+      assert.equal(result.structuredContent.omittedByTypeFilter, 1);
       assert.match(result.content[0].text, /Found 1 listing; filters verified/);
       assert.doesNotMatch(result.content[0].text, /Found 0 listings; filters verified/);
     });
   } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search_listings matches every catalog category and counts cards omitted by type', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-type-catalog-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const types = [
+    ['ednostaen', '1-СТАЕН'], ['dvustaen', '2-СТАЕН'], ['tristaen', '3-СТАЕН'], ['chetiristaen', '4-СТАЕН'],
+    ['mnogostaen', 'МНОГОСТАЕН'], ['mezonet', 'МЕЗОНЕТ'], ['atelie-tavan', 'АТЕЛИЕ, ТАВАН'],
+    ['etazh-ot-kashta', 'ЕТАЖ ОТ КЪЩА'], ['kashta', 'КЪЩА'], ['vila', 'ВИЛА'],
+    ['garazh-parkomyasto', 'ГАРАЖ'], ['ofis', 'ОФИС'], ['magazin', 'МАГАЗИН'], ['zavedenie', 'ЗАВЕДЕНИЕ'],
+    ['sklad', 'СКЛАД'], ['promishleno-pomeshtenie', 'ПРОМИШЛЕНО ПОМЕЩЕНИЕ'], ['hotel', 'ХОТЕЛ'],
+    ['biznes-imot', 'БИЗНЕС ИМОТ'], ['partsel', 'ПАРЦЕЛ'], ['staya', 'СТАЯ'],
+  ];
+  const cards = types.map(([slug, label], index) => `<div class="item${slug === 'kashta' ? ' TOP' : ''}" id="ida1c100000000000${String(index + 1).padStart(3, '0')}"><div class="text"><div class="zagлавие"><a class="title" href="/obiava-1c100000000000${String(index + 1).padStart(3, '0')}-synthetic">Продава ${label} <location>град София, Изток</location></a></div><div class="price">100 000 €</div></div><div class="info">50 кв.м</div></div>`).join('');
+  const fixture = join(directory, 'catalog.html');
+  await (await import('node:fs/promises')).writeFile(fixture, `<html><body>${cards}</body></html>`);
+  try {
+    for (const [slug] of types) {
+      const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, fixture]]);
+      await withClient(createServer({ adapter, storage }), async client => {
+        const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia', propertyTypes: [slug], maxPages: 1 }, limit: 20 } });
+        assert.equal(result.isError, undefined, result.content?.[0]?.text);
+        assert.equal(result.structuredContent.listings.length, 1, `should return catalog type ${slug}`);
+        if (slug === 'kashta') assert.match(result.structuredContent.listings[0].propertyType.label, /КЪЩА/i);
+        assert.equal(result.structuredContent.omittedByTypeFilter, types.length - 1);
+        assert.equal(result.structuredContent.excludedPromoted.length, 0);
+      });
+    }
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('get_listing reads live data, then uses a fresh observation unless refreshed', async () => {
