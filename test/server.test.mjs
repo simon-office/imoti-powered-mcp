@@ -46,6 +46,22 @@ test('search MCP schema uses validated environment collection defaults', async (
   }
 });
 
+test('search MCP schema documents deal and EUR monthly rent price inputs', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-search-descriptions-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  try {
+    await withClient(createServer({ storage, adapter: new FixtureAdapter({}) }), async client => {
+      const tool = (await client.listTools()).tools.find(({ name }) => name === 'search_listings');
+      const criteria = tool.inputSchema.properties.criteria.properties;
+      assert.match(criteria.deal.description, /sale|buy/i);
+      assert.match(criteria.priceMin.description, /EUR/i);
+      assert.match(criteria.priceMax.description, /EUR/i);
+      assert.match(criteria.priceMin.description, /month/i);
+      assert.match(criteria.priceMax.description, /month/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('district catalog is discoverable and mixed search districts retain valid entries with per-entry errors', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-district-catalog-'));
   const storage = openStorage(join(directory, 'test.db'));

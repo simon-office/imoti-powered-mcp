@@ -21,13 +21,13 @@ export function configuredSearchLimit(name: 'IMOTI_SEARCH_MAX_PAGES' | 'IMOTI_SE
 const boundsSchema = z.object({ min: z.number().positive().optional(), max: z.number().positive().optional() }).refine(({ min, max }) => min === undefined || max === undefined || min <= max, 'min must not exceed max');
 
 export const searchCriteriaSchema = z.object({
-  deal: z.enum(['sale', 'rent']).default('sale'),
+  deal: z.enum(['sale', 'rent']).default('sale').describe('Choose sale when buying or rent when renting.'),
   city: z.string().default('sofia'),
   districts: z.array(z.string()).default([]),
   propertyTypes: z.array(z.string().transform(value => resolvePropertyType(value).slug)).default([]),
   rooms: boundsSchema.optional(),
-  priceMin: z.number().nonnegative().optional(),
-  priceMax: z.number().positive().optional(),
+  priceMin: z.number().nonnegative().optional().describe('Minimum asking price in EUR; for rentals, EUR per month.'),
+  priceMax: z.number().positive().optional().describe('Maximum asking price in EUR; for rentals, EUR per month.'),
   areaMin: z.number().positive().optional(),
   areaMax: z.number().positive().optional(),
   maxPages: z.number().int().min(1).max(MAX_SEARCH_MAX_PAGES).default(DEFAULT_SEARCH_MAX_PAGES),
