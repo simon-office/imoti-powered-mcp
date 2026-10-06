@@ -9,7 +9,7 @@ export function redactContactText(value: string): string {
       const before = source.slice(Math.max(0, offset - 24), offset);
       const digits = candidate.replace(/\D/g, '');
       if (/^\s*(?:€|лв\.?|eur\b|bgn\b|кв\.?\s*м|m²|г\.)/i.test(after) || /\d\s*[-–]\s*$/.test(before)) return candidate;
-      if (digits.length >= 7 && (/^0/.test(digits) || candidate.includes('/') || candidate.includes('(') || candidate.includes('-') || /(?:тел|phone)\s*[:.]?\s*$/i.test(before))) return '[redacted]';
+      if (digits.length >= 7 && (/^0/.test(digits) || (candidate.startsWith('+') && digits.length >= 11) || candidate.includes('/') || candidate.includes('(') || candidate.includes('-') || /(?:тел|phone)\s*[:.]?\s*$/i.test(before))) return '[redacted]';
       return candidate;
     });
 }

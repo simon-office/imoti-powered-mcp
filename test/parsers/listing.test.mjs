@@ -32,6 +32,7 @@ test('parses full street-level listing details and structured Offer fields', asy
 
 test('sanitizes phone and email spans without changing surrounding text or line breaks', () => {
   assert.equal(sanitizeListingText('Условие\nОбади се 0888000000 или fake@example.invalid!'), 'Условие\nОбади се [redacted] или [redacted]!');
+  assert.equal(sanitizeListingText('Обади се +359 88 123 4567 за оглед.'), 'Обади се [redacted] за оглед.');
   assert.equal(sanitizeListingText(null), null);
 });
 
