@@ -10,6 +10,7 @@ export type ListingDetails = {
   location: { city: string | null; district: string | null; street: string | null; precision: 'exact' | 'street' | 'neighbourhood' | 'unknown' };
   photos: string[]; seller: { kind: 'agency' | 'private' | 'unknown'; name: string | null }; vatNote: string | null;
   appliedFilters: { deal: string | null; city: string | null; district: string | null; type: string | null };
+  facts: Record<'furnished' | 'pets' | 'deposit' | 'commission' | 'utilities' | 'newBuildStage' | 'auction' | 'vat', { value: string | boolean; source: string } | null>;
 };
 
 type Unavailable = { status: 'not_available'; id: string | null };
@@ -47,6 +48,24 @@ function truth(value: string | null): boolean | null {
 export function sanitizeListingText(value: string | null): string | null {
   if (value === null) return null;
   return redactContactText(value);
+}
+
+function sourcedFacts(description: string | null, vatNote: string | null): ListingDetails['facts'] {
+  const sentences = (description ?? '').split(/(?<=[.!?])\s+|\n+/).map(text => text.trim()).filter(Boolean);
+  const pick = (pattern: RegExp, value: (sentence: string) => string | boolean = sentence => sentence.replace(/[.!?]+$/, '')) => {
+    const source = sentences.find(sentence => pattern.test(sentence));
+    return source ? { value: value(source), source } : null;
+  };
+  return {
+    furnished: pick(/обзаведен[ао]?|мебелиран[ао]?|необзаведен[ао]?|без мебели/i, sentence => !/необзаведен[ао]?|без мебели/i.test(sentence)),
+    pets: pick(/домашни любимци|животни/i, sentence => !/(?:не\s+(?:се\s+)?(?:допускат|разрешават)|не допуска|забранени|без)\s+(?:домашни любимци|животни)/i.test(sentence)),
+    deposit: pick(/депозит|гаранционна сума/i, sentence => sentence.replace(/[.!?]+$/, '').replace(/^.*?(?:депозит[а-яА-Я]*|гаранционна сума)\s*(?:е|:|от|в размер на)?\s*/i, '').trim() || sentence.replace(/[.!?]+$/, '')),
+    commission: pick(/комисион|комисиона/i, sentence => sentence.replace(/[.!?]+$/, '').replace(/^.*?комисион[а-яА-Я]*\s*(?:е|:|от|в размер на)?\s*/i, '').trim() || sentence.replace(/[.!?]+$/, '')),
+    utilities: pick(/ток|електроенерг|вода|отоплен|комуналн/i),
+    newBuildStage: pick(/акт\s*(?:14|15|16)|в процес на строителство|строи се|в строеж/i, sentence => sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction'),
+    auction: pick(/търг|наддаван|аукцион/i, sentence => !/не се предлага.*търг/i.test(sentence)),
+    vat: vatNote ? { value: vatNote, source: vatNote } : pick(/ддс|vat/i),
+  };
 }
 
 export function parseListing(input: string | Uint8Array, url?: string): ListingDetails | Unavailable {
@@ -105,5 +124,6 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
     gas: truth(param(document, /^Газ/i)), districtHeating: truth(param(document, /^Т[ЕE]Ц/i)), construction, constructionPeriod: period, description,
     location, photos, seller: { kind: /частно лице|частен продавач/i.test(`${sellerType} ${sellerName}`) ? 'private' : sellerName ? 'agency' : 'unknown', name: null }, vatNote,
     appliedFilters: { deal: crumbs[1] ?? null, city: crumbs[2] ?? null, district: crumbs[3] ?? null, type: crumbs[4] ?? null },
+    facts: sourcedFacts(description, vatNote),
   };
 }
