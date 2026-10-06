@@ -413,7 +413,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
     const searchOutput = z.object({
       query: z.object({ urls: z.array(z.string()), criteria: z.record(z.string(), z.unknown()) }),
       verification: z.object({ ok: z.boolean(), mismatches: z.array(z.record(z.string(), z.unknown())) }),
-      listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()), contributingPages: z.array(z.number()),
+      listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()), districtCoverage: z.record(z.string(), z.object({ returned: z.number(), total: z.number().nullable() })), contributingPages: z.array(z.number()),
       pagesFetched: z.number(), pages: z.array(z.object({ pageUrl: z.string(), pageNumber: z.number(), totalCount: z.number().nullable(), nextPageUrl: z.string().nullable() })), coverage: z.object({ districts: z.array(z.string()), propertyTypes: z.array(z.string()) }), excludedPromoted: z.array(z.object({ listing: z.record(z.string(), z.unknown()), pageUrl: z.string() })), omittedByTypeFilter: z.number(),
     });
     server.registerTool('get_search_districts', {
@@ -449,13 +449,20 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         let truncated = false;
         let pagesFetched = 0;
         const pages: Array<{ pageUrl: string; pageNumber: number; totalCount: number | null; nextPageUrl: string | null }> = [];
+        const paginationEnded = new Set<string>();
+        const pairKey = (value: string) => new URL(value).pathname.replace(/\/p-\d+$/, '') + new URL(value).search;
         const observedAt = new Date().toISOString();
         for (const url of built.urls) {
+          const requestedPage = Number(new URL(url).pathname.match(/\/p-(\d+)$/)?.[1] ?? 1);
+          const key = pairKey(url);
+          if (requestedPage > (criteria.startPage ?? 1) && paginationEnded.has(key)) continue;
           urls.push(url);
           const page = await adapter.fetchPage(url);
           const parsed = parseSearchResults(page.html, url);
           pagesFetched++;
           pages.push({ pageUrl: url, pageNumber: parsed.pageNumber, totalCount: parsed.totalCount, nextPageUrl: parsed.nextPageUrl });
+          if (!parsed.nextPageUrl) paginationEnded.add(key);
+          else if (requestedPage === (criteria.startPage ?? 1) + criteria.maxPages - 1) truncated = true;
           // SearchPage exposes listing evidence, so use this page's URL for query-level filters.
           const path = new URL(page.url).pathname.split('/').filter(Boolean);
           const verification = verifyFilters(criteria, { appliedFilters: {
@@ -463,15 +470,12 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             city: criteria.city,
             district: criteria.districts.length ? path[3] : undefined,
             type: path[criteria.districts.length ? 4 : 3],
-          }, listings: parsed.listings.filter(item => !item.promotedTier || verifyFilters(criteria, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] }).ok).map(item => ({
-            dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType,
-            price: item.price,
-          })) });
+          }, listings: [] });
           // The site's page filters are the authority for each scheduled
           // combination; card-level mismatches below are checked only on
           // listings that are actually returned (paid off-filter cards are
           // reported separately).
-          mismatches.push(...verification.mismatches.filter(item => item.filter !== 'district' && item.filter !== 'type'));
+          mismatches.push(...verification.mismatches.filter(item => item.filter !== 'district' && item.filter !== 'type').map(item => ({ ...item, verificationScope: 'page', sourcePageUrl: url })));
           const pathParts = new URL(url).pathname.split('/').filter(Boolean);
           if (criteria.districts.length) coveredDistricts.add(pathParts[3]);
           if (criteria.propertyTypes.length || criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max) coveredTypes.add(pathParts[criteria.districts.length ? 4 : 3]);
@@ -479,6 +483,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             if (!item.id || !item.url) continue;
             const itemCheck = verifyFilters(criteria, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] });
             const nonTypeCheck = verifyFilters({ ...criteria, propertyTypes: [], rooms: undefined }, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] });
+            if (!item.promotedTier || nonTypeCheck.ok) mismatches.push(...itemCheck.mismatches.filter(mismatch => mismatch.filter !== 'district' && mismatch.filter !== 'type').map(mismatch => ({ ...mismatch, listingId: item.id, sourcePageUrl: url })));
             if (item.promotedTier && !nonTypeCheck.ok) { excludedPromoted.push({ listing: { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' }, pageUrl: url }); continue; }
             if (criteria.districts.length && (!item.location.district || !criteria.districts.some(name => resolveDistrict(name).slug === resolveDistrict(item.location.district!).slug))) continue;
             if (criteria.priceMin !== undefined && (item.price?.amount === undefined || item.price.amount < criteria.priceMin)) continue;
@@ -493,7 +498,6 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
               candidatePages.set(item.id, parsed.pageNumber);
             }
           }
-          if (listings.size >= limit) truncated = true;
         }
         const ordered = [...listings.values()];
         const districtOf = (item: Listing) => (item.location as { district?: unknown } | undefined)?.district;
@@ -522,6 +526,11 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const results = interleaved.slice(0, limit);
         const contributingPages = [...new Set(results.map(item => candidatePages.get(item.id) ?? 1))].sort((a, b) => a - b);
         const districtCounts = Object.fromEntries(criteria.districts.map(name => [resolveDistrict(name).slug, results.filter(item => typeof districtOf(item) === 'string' && resolveDistrict(districtOf(item) as string).slug === resolveDistrict(name).slug).length]));
+        const districtCoverage = Object.fromEntries(criteria.districts.map(name => {
+          const slug = resolveDistrict(name).slug;
+          const total = pages.filter(page => new URL(page.pageUrl).pathname.split('/').includes(slug)).map(page => page.totalCount).find(value => value !== null) ?? null;
+          return [slug, { returned: districtCounts[slug], total }];
+        }));
         if (listings.size > limit) truncated = true;
         for (const listing of results) {
           storage.upsertListing(listing, observedAt);
@@ -531,8 +540,10 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const exactRoomType = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? roomCountToPropertyType(criteria.rooms.min) : undefined;
         const expectedTypes = criteria.propertyTypes.length ? criteria.propertyTypes : exactRoomType ? [exactRoomType] : [];
         if (criteria.districts.some(name => !coveredDistricts.has(resolveDistrict(name).slug)) || expectedTypes.some(type => !coveredTypes.has(type))) mismatches.push({ filter: 'coverage', expected: { districts: criteria.districts.map(name => resolveDistrict(name).slug), propertyTypes: expectedTypes }, observed: coverage });
-        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, contributingPages, pagesFetched, pages, coverage, excludedPromoted, omittedByTypeFilter };
-        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}; filters ${output.verification.ok ? 'verified' : 'need review'}.${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
+        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, districtCoverage, contributingPages, pagesFetched, pages, coverage, excludedPromoted, omittedByTypeFilter };
+        const knownTotal = criteria.districts.length ? Object.values(districtCoverage).reduce((sum, item) => sum + (item.total ?? 0), 0) : pages[0]?.totalCount;
+        const affected = truncated ? ` Coverage truncated at configured ${criteria.maxPages}-page cap${excludedPromoted.length ? `; promoted cards consumed page coverage (${excludedPromoted.length} excluded)` : ''}.` : '';
+        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}${knownTotal === null || knownTotal === undefined ? '' : ` returned out of ${knownTotal} known total`}${truncated ? ' (truncated)' : ''}; filters ${output.verification.ok ? 'verified' : 'need review'}.${affected}${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });
 
