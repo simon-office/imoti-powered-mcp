@@ -18,6 +18,7 @@ export function createLocalServer(options: LocalServerOptions = {}) {
   return serverFactory({
     adapter: options.adapter ?? new PlaywrightAdapter(),
     storage: options.storage ?? openStorage(),
-    sofiaData: options.sofiaData ?? new LocalSofiaDataAdapter()
+    sofiaData: options.sofiaData ?? new LocalSofiaDataAdapter(),
+    cleanupOnDisconnect: true
   });
 }
