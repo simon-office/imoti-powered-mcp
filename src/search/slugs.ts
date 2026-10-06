@@ -23,7 +23,7 @@ fakulteta|Факултета
 filipovtsi|Филиповци
 fondovi-zhilishta|Фондови жилища
 geo-milev|Гео Милев
-gevgelijski|Гевгелийски
+gevgeliyski|Гевгелийски
 gorna-banya|Горна баня
 gorublyane|Горубляне
 gotse-delchev|Гоце Делчев
@@ -192,7 +192,7 @@ zona-b-19|Зона Б-19
 zona-b-5|Зона Б-5
 zona-b-5-3|Зона Б-5-3`;
 
-const latinName = (slug: string) => slug.split('-').map(part => /^\d/.test(part) ? part : part[0].toUpperCase() + part.slice(1)).join(' ');
+const latinName = (slug: string) => slug.replace(/^s-/, '').split('-').map(part => /^\d/.test(part) ? part : part[0].toUpperCase() + part.slice(1)).join(' ');
 const restrictedSlugs = new Set(`botunets-2 gr-buhovo m-t-barite m-t-kinotsentara m-t-mala-koriya m-t-podlozishte m-t-shtarkelovo-gnezdo myasto npz-sredets s-balsha s-dobroslavtsi s-dolni-pasarel s-gorni-bogrov s-ivanyane s-katina s-klisura s-malo-buchino s-podgumer s-voynegovtsi s-zhelyava seslavtsi v-z-belovodski-pat v-z-boyana v-z-bunkera v-z-cherniya-kos v-z-gorna-banya v-z-kiliite v-z-lyulin zh-gr-zoopark`.split(' '));
 export const districts: readonly District[] = districtCatalog.split('\n').map(line => {
   const [slug, bg] = line.split('|');
@@ -224,7 +224,7 @@ export const propertyTypeCatalog = [
 export const propertyTypes = propertyTypeCatalog.map(({ slug }) => slug) as unknown as readonly string[];
 
 function normalize(value: string): string {
-  return value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^(?:гр\.?|с\.?|ж\s*\.?\s*к\.?|кв\.?)\s*/u, '').replace(/[\s-]+/g, ' ').trim();
+  return value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^(?:гр\.?|с\.?|ж\s*\.?\s*к\.?|zh\s*\.?\s*k\.?|кв\.?)\s*/u, '').replace(/[\s-]+/g, ' ').trim();
 }
 
 export function resolveDistrict(value: string): District {
