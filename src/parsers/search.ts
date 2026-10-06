@@ -8,6 +8,7 @@ export type ListingSummary = {
   title: string | null;
   dealType: 'sale' | 'rent' | 'unknown';
   propertyType: { slug: string; label: string; rooms: number | null } | null;
+  residential: boolean | null;
   price: { amount: number; currency: string } | null;
   priceLowered: boolean;
   areaM2: number | null;
@@ -83,6 +84,7 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
       label: typeMatch.label,
       rooms: Number(typeMatch.label.match(/\d+/)?.[0]) || null,
     } : null,
+    residential: typeMatch ? ['ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'atelie-tavan', 'etazh-ot-kashta', 'kashta', 'vila', 'staya'].includes(typeMatch.type.slug) : null,
     price: Number.isFinite(amount) && priceCurrency ? { amount, currency: priceCurrency } : null,
     priceLowered: item.querySelector('.price.DOWN') !== null,
     areaM2: areaMatch ? Number(areaMatch[1].replace(/\s/g, '')) : null,
@@ -104,7 +106,7 @@ export function parseSearchResults(input: string | Uint8Array, pageUrl = 'https:
     try { return parseItem(item, pageUrl); }
     catch {
       return {
-        id: null, url: null, title: null, dealType: 'unknown', propertyType: null, price: null, priceLowered: false,
+        id: null, url: null, title: null, dealType: 'unknown', propertyType: null, residential: null, price: null, priceLowered: false,
         areaM2: null, floor: null, floorsTotal: null, heating: null, construction: null,
         location: { city: null, district: null, raw: null }, seller: { kind: 'unknown', name: null },
         photoCount: null, promotedTier: null, thumbnailUrl: null,

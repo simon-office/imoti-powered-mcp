@@ -30,6 +30,21 @@ test('parses full street-level listing details and structured Offer fields', asy
   assert.equal(Object.keys(result).some((key) => /phone|email|contact/i.test(key)), false);
 });
 
+test('extracts only explicitly stated rental and sale facts with their exact source sentence', () => {
+  const html = '<div class="adPrice"><div class="price"><div>Цената е с включено ДДС</div></div></div><div class="moreInfo"><div class="text">Обзаведен апартамент. Разрешени са домашни любимци. Депозитът е два наема. Комисионата е 50%. Токът и водата се заплащат отделно. Сградата е с Акт 14. Имотът се продава на търг.</div></div>';
+  const result = parseListing(html);
+  assert.deepEqual(result.facts.furnished, { value: true, source: 'Обзаведен апартамент.' });
+  assert.deepEqual(result.facts.pets, { value: true, source: 'Разрешени са домашни любимци.' });
+  assert.deepEqual(result.facts.deposit, { value: 'два наема', source: 'Депозитът е два наема.' });
+  assert.deepEqual(result.facts.commission, { value: '50%', source: 'Комисионата е 50%.' });
+  assert.deepEqual(result.facts.utilities, { value: 'Токът и водата се заплащат отделно', source: 'Токът и водата се заплащат отделно.' });
+  assert.deepEqual(result.facts.newBuildStage, { value: 'Акт 14', source: 'Сградата е с Акт 14.' });
+  assert.deepEqual(result.facts.auction, { value: true, source: 'Имотът се продава на търг.' });
+  assert.deepEqual(result.facts.vat, { value: 'Цената е с включено ДДС', source: 'Цената е с включено ДДС' });
+  assert.equal(result.facts.deposit.source.includes('Комисионата'), false);
+  assert.equal(parseListing('<div class="adPrice"><div class="price"></div></div>').facts.pets, null);
+});
+
 test('sanitizes phone and email spans without changing surrounding text or line breaks', () => {
   assert.equal(sanitizeListingText('Условие\nОбади се 0888000000 или fake@example.invalid!'), 'Условие\nОбади се [redacted] или [redacted]!');
   assert.equal(sanitizeListingText('Обади се +359 88 123 4567 за оглед.'), 'Обади се [redacted] за оглед.');

@@ -162,11 +162,14 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
     [url, new URL('./fixtures/listing-street.html', import.meta.url)],
     [unavailableUrl, new URL('./fixtures/listing-removed.html', import.meta.url)],
   ]);
+  storage.recordObservation({ listingId: '1c100000000000001', observedAt: new Date().toISOString(), sourceUrl: 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya', raw: {}, normalized: { id: '1c100000000000001', priceLowered: true, seller: { kind: 'agency', name: 'Картична Агенция' }, location: { district: 'Другаде', precision: 'neighbourhood' } } });
   try {
     const server = createServer({ adapter, storage });
     await withClient(server, async client => {
       const first = await client.callTool({ name: 'get_listing', arguments: { url } });
       assert.equal(first.structuredContent.status, undefined);
+      assert.equal(first.structuredContent.evidenceReconciliation.authority, 'detail');
+      assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'priceLowered'));
       assert.equal(adapter.requests.length, 1);
       await client.callTool({ name: 'get_listing', arguments: { id: '1c100000000000001' } });
       assert.equal(adapter.requests.length, 1);
@@ -298,6 +301,24 @@ test('compare_listings returns stored evidence and bounded asking-price sample m
       assert.deepEqual(askingPricePositioning, { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: 2, currency: 'EUR', period: { from: '2026-02-01T00:00:00.000Z', to: '2026-02-10T00:00:00.000Z' }, minimum: 200000, median: 250000, maximum: 300000 });
       assert.match(askingPricePositioning.basis, /not completed sales/);
       assert.equal(JSON.stringify(result).toLowerCase().includes('hidden defect'), false);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('comparison labels rent monthly, preserves deal and VAT, and warns for partial-area €/m²', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-terms-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'sale-x', dealType: 'sale', price: { amount: 200000, currency: 'EUR' }, areaM2: 80, areaScope: 'part', vatNote: 'Цената е с включено ДДС' });
+  storage.upsertListing({ id: 'rent-x', dealType: 'rent', price: { amount: 1200, currency: 'EUR' }, areaM2: 60 });
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['sale-x', 'rent-x'] } });
+      const [sale, rent] = result.structuredContent.listings;
+      assert.equal(sale.dealType, 'sale');
+      assert.equal(sale.vatTerms, 'Цената е с включено ДДС');
+      assert.match(sale.uncertainty.join(' '), /partial|part of the property/i);
+      assert.equal(rent.dealType, 'rent');
+      assert.equal(rent.pricePeriod, 'per month');
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

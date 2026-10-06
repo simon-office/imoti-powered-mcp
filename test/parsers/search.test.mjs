@@ -15,7 +15,7 @@ test('parses the synthetic result items and every listing summary field', async 
   assert.equal(page.nextPageUrl, 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/tristaen/p-2');
   assert.deepEqual(page.listings[0], {
     id: '1c100000000000001', url: 'https://www.imot.bg/obiava-1c100000000000001-izmislena-oferta', title: 'Продава 3-СТАЕН', dealType: 'sale',
-    propertyType: { slug: 'tristaen', label: '3-СТАЕН', rooms: 3 }, price: { amount: 125000, currency: 'EUR' }, priceLowered: false,
+    propertyType: { slug: 'tristaen', label: '3-СТАЕН', rooms: 3 }, residential: true, price: { amount: 125000, currency: 'EUR' }, priceLowered: false,
     areaM2: 82, floor: 4, floorsTotal: 8, heating: 'ТЕЦ', construction: 'Тухла',
     location: { city: 'град София', district: 'Изток', raw: 'град София, Изток' },
     seller: { kind: 'agency', name: 'Агенция Пример' }, photoCount: 3, promotedTier: 'BEST',
@@ -31,6 +31,11 @@ test('parses the synthetic result items and every listing summary field', async 
   assert.deepEqual(page.listings.map(({ promotedTier }) => promotedTier), ['BEST', 'TOP', 'VIP', null]);
   assert.equal(page.listings[3].thumbnailUrl, null);
   assert.equal(page.listings[3].photoCount, 0);
+});
+
+test('explicitly marks non-residential results when the search type is unrestricted', () => {
+  const page = parseSearchResults('<div class="item" id="ida-fake"><a class="title" href="/obiava-fake">Продава ОФИС</a></div>');
+  assert.equal(page.listings[0].residential, false);
 });
 
 test('supports empty and final result pages and skips news or malformed items without listing ids', async () => {
