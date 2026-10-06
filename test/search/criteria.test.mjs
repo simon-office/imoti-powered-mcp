@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildSearchUrls, verifyFilters } from '../../dist/search/url-builder.js';
 import { searchCriteriaSchema } from '../../dist/search/criteria.js';
 import { propertyTypeCatalog, resolveDistrict, roomCountToPropertyType } from '../../dist/search/slugs.js';
+import { parseSearchResults } from '../../dist/parsers/search.js';
 
 test('criteria defaults deal, city and page limit', () => {
   assert.deepEqual(searchCriteriaSchema.parse({}), { deal: 'sale', city: 'sofia', districts: [], propertyTypes: [], maxPages: 3 });
@@ -73,7 +74,13 @@ test('verifies breadcrumb and listing type for rooms-only criteria', () => {
   assert.deepEqual(result.mismatches.map(({ filter }) => filter), ['type', 'type']);
 });
 
-test('house-type verification recognizes a parsed house card category', () => {
+test('house-type verification retains a house parsed from a synthetic house card', () => {
   const criteria = searchCriteriaSchema.parse({ propertyTypes: ['kashta'] });
-  assert.deepEqual(verifyFilters(criteria, { appliedFilters: { deal: 'Продава', city: 'град София', type: 'КЪЩА' }, listings: [{ dealType: 'sale', location: { city: 'град София' }, propertyType: { label: 'КЪЩА' } }] }), { ok: true, mismatches: [] });
+  const parsedPage = parseSearchResults('<div class="item" id="ida-fake-house"><div class="zaglavie"><a class="title" href="/obiava-fake-house">Продава КЪЩА</a></div></div>');
+
+  assert.equal(parsedPage.listings[0].propertyType.slug, 'kashta');
+  assert.deepEqual(verifyFilters(criteria, {
+    appliedFilters: { deal: 'Продава', city: 'град София', type: 'КЪЩА' },
+    listings: parsedPage.listings,
+  }), { ok: true, mismatches: [] });
 });
