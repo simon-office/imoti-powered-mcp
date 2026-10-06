@@ -88,11 +88,34 @@ test('live-check documents stage 2 event expectations and safe reporting', async
   assert.match(doc, /Do not include credentials, tokens, personal data[\s\S]*?photos, copied\s+listing pages, page dumps/i);
 });
 
-test('README reports stage 4 prepared and documents local refresh', async () => {
+test('README reports stage 5 prepared and documents local refresh', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 4 prepared; Simon's owner live check and release decision pending/i);
+  assert.match(readme, /Status: stage 5 prepared; Simon's owner live check pending/i);
   assert.match(readme, /owner live check/i);
   assert.match(readme, /npm run refresh --/);
+});
+
+test('stage 5 owner procedure covers the nine exact requests and expected comparisons', async () => {
+  const doc = await read('docs/live-check.md');
+  const requests = [
+    "Hi! We're relocating to Sofia next spring and want to buy a two bedroom apartment. Budget is about 200k euro. We don't know the city at all – somewhere safe, green, and not too far from the center would be great, ideally close to a metro station since we won't have a car. What would you suggest?",
+    'I just got a job at Business Park Sofia and need to rent a furnished one-bedroom flat, max 800 EUR per month. I have a cat. I\'d like to walk or take a short ride to the office. Can you find something?',
+    "We want to buy a small house with a garden near Sofia, quiet area, max 250,000 euros. We don't mind commuting 30-40 minutes to the city. Any options?",
+    'Здравейте, искам да купя апартамент в София за около 150 хиляди евро, с две спални. Нямам кола, затова ми трябва да е близо до метро. Не познавам добре кварталите, кое е добро за живеене?',
+    'Търся квартира под наем за дъщеря ми, която ще учи в София. До 500 лева на месец, най-добре близо до Студентски град или някой университет. Какво има?',
+    'Искаме да наемем къща или голям апартамент с двор в Бояна или Драгалевци, до 1500 евро на месец. Имаме две деца и куче.',
+    'Здравствуйте! Хочу купить квартиру в Софии, чтобы сдавать в аренду. Бюджет до 120 тысяч евро, однушка или двушка, желательно недалеко от центра или университета. Что посоветуете?',
+    'Ищу квартиру в аренду в Софии на длительный срок, двухкомнатную, с мебелью, до 900 евро в месяц. У нас собака, так что нужно чтобы хозяин разрешал животных, и хорошо бы рядом парк и метро.',
+    'Мы с мужем хотим купить трёхкомнатную квартиру в новостройке в Софии, около 250 тысяч евро, в хорошем спокойном районе, где живёт много иностранцев. Подскажите варианты.',
+  ];
+  assert.match(doc, /Owner live check \(stage 5/);
+  for (const request of requests) assert.ok(doc.includes(request), `missing exact request: ${request}`);
+  for (const phrase of [/five purchases and four rentals/i, /every requested district[\s\S]*?resolves/i, /coverage of several types\s+at once/i, /Sofia-wide totals[\s\S]*?first alphabetical districts[\s\S]*?result pages were fetched/i, /monthly amount[\s\S]*?reported in euros[\s\S]*?1\.95583/i, /redaction[\s\S]*?contacts only[\s\S]*?prices and areas/i, /metro.stop mode[\s\S]*?nearest metro station/i, /distance to a named place/i, /truncated[\s\S]*?incomplete or unknown/i, /verified[\s\S]*?unverified/i, /redacted[\s\S]*?result template/i, /Never copy page text, personal data, contact details, photos, credentials or raw user data/i]) assert.match(doc, phrase);
+});
+
+test('README reports stage 5 prepared pending Simon owner live check', async () => {
+  const readme = await read('README.md');
+  assert.match(readme, /Status: stage 5 prepared; Simon's owner live check pending/i);
 });
 
 test('stage 4 owner check documents reproducible commands, criteria, reporting, and Simon hand-off', async () => {

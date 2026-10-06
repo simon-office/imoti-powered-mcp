@@ -2,7 +2,7 @@
 
 A conversational assistant that searches imot.bg, evaluates properties and remembers what matters to the user. Describe the desired home in plain language; the assistant chooses filters, finds listings, reviews their photos and location, and explains its shortlist.
 
-**Status: stage 4 prepared; Simon's owner live check and release decision pending.**
+**Status: stage 5 prepared; Simon's owner live check pending.**
 
 See [product limitations](docs/limitations.md) for coverage and uncertainty boundaries, and [site terms and image-use permissions](docs/site-permissions.md) for the dated source review and decisions required before distribution.
 
