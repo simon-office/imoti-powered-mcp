@@ -23,6 +23,8 @@ export interface ServerDependencies {
   adapter?: SiteAdapter;
   storage?: Storage;
   photoAssessment?: PhotoAssessmentOptions;
+  /** Maximum time spent retrieving one photo page. Defaults to 10 seconds. */
+  photoRetrievalTimeoutMs?: number;
   sofiaData?: SofiaDataAdapter;
   cleanupOnDisconnect?: boolean;
 }
@@ -284,7 +286,19 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         if (!listing) return { isError: true, content: [{ type: 'text' as const, text: `Listing ${listingId} was not found in local storage.` }] };
         const references = Array.isArray(listing.photos) ? listing.photos.filter((reference): reference is string => typeof reference === 'string') : [];
         const pageReferences = references.slice(offset, offset + 3);
-        const page = await adapter.getListingPhotos(listingId, pageReferences);
+        const controller = new AbortController();
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const timeoutMs = deps.photoRetrievalTimeoutMs ?? 10_000;
+        const page = await Promise.race([
+          adapter.getListingPhotos(listingId, pageReferences, { signal: controller.signal }),
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+              const error = new Error(`Photo retrieval exceeded its ${timeoutMs}ms deadline.`);
+              controller.abort(error);
+              reject(error);
+            }, timeoutMs);
+          }),
+        ]).finally(() => { if (timeout) clearTimeout(timeout); });
         const photos = page.map(({ listingId: photoListingId, reference, mediaType, unavailableReason }) => ({ listingId: photoListingId, reference, mediaType, ...(unavailableReason ? { unavailableReason } : {}) }));
         const uncertainty = photos.flatMap(photo => photo.unavailableReason ? [`Photo ${photo.reference}: ${photo.unavailableReason}`] : []);
         const result = await assessListingPhotos(page, deps.photoAssessment ?? configuredPhotoAssessmentOptions(process.env));

@@ -301,6 +301,37 @@ test('photo pagination retrieves only a bounded subset per call and walks the co
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('photo retrieval deadline aborts a stalled adapter and allows pagination to continue', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-deadline-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const refs = Array.from({ length: 4 }, (_, i) => `https://images.fake.test/deadline-${i}.jpg`);
+  storage.upsertListing({ id: 'deadline-inventory', photos: refs });
+  const adapter = new FixtureAdapter({});
+  const requestedOffsets = [];
+  let aborted = false;
+  adapter.getListingPhotos = async (_id, references, { signal } = {}) => {
+    requestedOffsets.push(references[0]);
+    if (references[0] === refs[0]) return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => { aborted = true; reject(signal.reason); }, { once: true });
+    });
+    return references.map(reference => ({ listingId: 'deadline-inventory', reference, mediaType: 'image/jpeg' }));
+  };
+  try {
+    await withClient(createServer({ adapter, storage, photoRetrievalTimeoutMs: 20 }), async client => {
+      const started = Date.now();
+      const slow = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'deadline-inventory' } });
+      assert.ok(Date.now() - started < 500, 'stalled retrieval is bounded by its configured deadline');
+      assert.equal(slow.isError, true);
+      assert.match(slow.content[0].text, /deadline/i);
+      assert.equal(aborted, true);
+      const continued = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'deadline-inventory', offset: 3 } });
+      assert.deepEqual(continued.structuredContent.photos.map(photo => photo.reference), [refs[3]]);
+      assert.equal(continued.structuredContent.nextOffset, null);
+      assert.deepEqual(requestedOffsets, [refs[0], refs[3]]);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('photo assessment host blocks retain the assessed original image bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-variants-'));
   const storage = openStorage(join(directory, 'test.db'));
