@@ -106,6 +106,33 @@ test('uses district address points and discloses approximate source when polygon
   assert.equal(result.source, provenance.name);
 });
 
+test('uses matching district address points when a district feature has no polygon geometry', () => {
+  const districtProvenance = { name: 'Synthetic district point', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic' };
+  const addressProvenance = { name: 'Synthetic municipal addresses', sourceUrl: 'https://fixture.test/addresses', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic' };
+  const result = resolveMunicipalLocation({ id: 'missing-polygon', location: { city: 'Sofia', district: 'Измислен' } }, {
+    addresses: [
+      { settlement: 'гр. София', street: 'ул. Една', region: 'Измислен', latitude: 42.7, longitude: 23.3, provenance: addressProvenance },
+      { settlement: 'гр. София', street: 'ул. Две', region: 'Измислен', latitude: 42.72, longitude: 23.32, provenance: addressProvenance },
+    ],
+    districts: [{ name: 'КВ. ИЗМИСЛЕН', latitude: 42.9, longitude: 23.5, provenance: districtProvenance }],
+  });
+  assert.ok(Math.abs(result.coordinates.latitude - 42.71) < 1e-9);
+  assert.ok(Math.abs(result.coordinates.longitude - 23.31) < 1e-9);
+  assert.equal(result.source, addressProvenance.name);
+  assert.match(result.uncertainty.join(' '), /2 municipal address points.*approximate neighbourhood precision/i);
+});
+
+test('labels a supplied district point approximate when no address-point fallback exists', () => {
+  const provenance = { name: 'Synthetic district point', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic' };
+  const result = resolveMunicipalLocation({ id: 'approximate-point', location: { city: 'Sofia', district: 'Измислен' } }, {
+    addresses: [],
+    districts: [{ name: 'КВ. ИЗМИСЛЕН', latitude: 42.9, longitude: 23.5, provenance }],
+  });
+  assert.deepEqual(result.coordinates, { latitude: 42.9, longitude: 23.5 });
+  assert.equal(result.source, provenance.name);
+  assert.match(result.uncertainty.join(' '), /geometry is unavailable.*supplied neighbourhood point is approximate/i);
+});
+
 test('area_context measures host-supplied destinations as straight-line distances', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-area-destination-'));
   const storage = openStorage(join(directory, 'test.db'));
