@@ -38,6 +38,18 @@ test('live-check documentation gives executable memory and refresh steps', async
   assert.match(doc, /close the Claude Code chat\/session/i);
 });
 
+test('release live-check uses existing tools and distinguishes the plugin server', async () => {
+  const doc = await read('docs/live-check.md');
+  const readme = await read('README.md');
+  const releaseDocs = `${doc}\n${readme}`;
+  assert.doesNotMatch(releaseDocs, /search-feedback-digest/i);
+  assert.match(doc, /search_listings[\s\S]*?save_note[\s\S]*?watch_listing[\s\S]*?npm run refresh[\s\S]*?get_changes/i);
+  assert.match(doc, /sample-requests\.md/);
+  assert.match(doc, /root `\.mcp\.json`[\s\S]*?project server `imoti`[\s\S]*?must be\s+declined[\s\S]*?`plugin:imoti-powered-mcp:imoti`/i);
+  assert.match(doc, /owner report[\s\S]*?search_listings[\s\S]*?save_note[\s\S]*?watch_listing[\s\S]*?npm run refresh[\s\S]*?get_changes/i);
+  assert.match(readme, /claude --plugin-dir \.[\s\S]*?root `\.mcp\.json`[\s\S]*?project server `imoti`[\s\S]*?must be\s+declined[\s\S]*?`plugin:imoti-powered-mcp:imoti`/i);
+});
+
 test('live-check preserves stage 1 and provides runnable stage 3 evaluation calls', async () => {
   const doc = await read('docs/live-check.md');
   assert.match(doc, /Owner live check \(stage 1\)/);
@@ -90,7 +102,6 @@ test('stage 4 owner check documents reproducible commands, criteria, reporting, 
     assert.ok(doc.includes(command), `missing live-check command: ${command}`);
   }
   for (const phrase of [
-    /search-feedback-digest/i,
     /IMOTI_SEARCH_MAX_RESULTS[\s\S]*?10–20[\s\S]*?IMOTI_SEARCH_MAX_PAGES[\s\S]*?1–3/,
     /current cached dataset[\s\S]*?stale cached dataset/i,
     /coordinates are unavailable/i,
