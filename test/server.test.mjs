@@ -669,6 +669,33 @@ test('comparison excludes auction amounts from asking-price pooling and puts pro
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('comparison flags top floor beside €/m² only when the total floor count is known and matches', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-top-floor-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  try {
+    for (const listing of [
+      { id: 'top-floor', floor: 6, floorsTotal: 6 },
+      { id: 'middle-floor', floor: 3, floorsTotal: 6 },
+      { id: 'unknown-total', floor: 6 },
+    ]) {
+      storage.upsertListing({ ...listing, dealType: 'sale', price: { amount: 180000, currency: 'EUR' }, areaM2: 90 });
+    }
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['top-floor', 'middle-floor', 'unknown-total'] } });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      const [top, middle, unknown] = result.structuredContent.listings;
+      assert.deepEqual(top.pricePerSquareMeter, { amount: 2000, currency: 'EUR' });
+      assert.equal(top.comparisonContext.topFloor, true);
+      assert.equal(top.comparisonContext.basement, false);
+      assert.equal(top.comparisonContext.floor, 6);
+      assert.equal(top.comparisonContext.floorsTotal, 6);
+      assert.equal(middle.comparisonContext.topFloor, false);
+      assert.equal(unknown.comparisonContext.topFloor, false);
+      assert.equal(unknown.comparisonContext.floorsTotal, null);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('compare_listings rejects fewer than two, more than ten, and duplicate IDs', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-invalid-'));
   const storage = openStorage(join(directory, 'test.db'));
