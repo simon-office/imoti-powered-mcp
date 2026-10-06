@@ -1,5 +1,5 @@
 import type { SearchCriteria } from './criteria.js';
-import { resolveDistrict, roomCountToPropertyType } from './slugs.js';
+import { resolveDistrict, resolvePropertyType, roomCountToPropertyType } from './slugs.js';
 
 export type SearchPageForVerification = {
   appliedFilters?: { deal?: string | null; city?: string | null; district?: string | null; type?: string | null };
@@ -53,11 +53,10 @@ function matches(filter: string, expected: unknown, observed: unknown): boolean 
   }
   if (filter === 'city') return /sofia|софия/i.test(String(observed ?? ''));
   if (filter === 'district') return observed != null && (expected as string[]).includes(resolveDistrict(String(observed)).slug);
-  if (filter === 'type') return (expected as string[]).some((type) => {
-    const actual = String(observed ?? '').toLowerCase().replace(/[^a-z0-9а-я]/gi, '');
-    const names: Record<string, string> = { ednostaen: '1стаен', dvustaen: '2стаен', tristaen: '3стаен', chetiristaen: '4стаен', mnogostaen: '5стаен' };
-    return actual.includes(type.toLowerCase()) || (names[type] !== undefined && actual.includes(names[type]));
-  });
+  if (filter === 'type') {
+    try { return (expected as string[]).some(type => resolvePropertyType(String(observed ?? '')).slug === type); }
+    catch { return false; }
+  }
   if (filter === 'priceMax') return typeof observed === 'number' && observed <= (expected as number);
   return expected === observed;
 }

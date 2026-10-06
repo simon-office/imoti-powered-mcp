@@ -1,11 +1,12 @@
 import { HTMLElement, parse } from 'node-html-parser';
+import { propertyTypeCatalog } from '../search/slugs.js';
 
 export type ListingSummary = {
   id: string | null;
   url: string | null;
   title: string | null;
   dealType: 'sale' | 'rent' | 'unknown';
-  propertyType: { label: string; rooms: number | null } | null;
+  propertyType: { slug: string; label: string; rooms: number | null } | null;
   price: { amount: number; currency: string } | null;
   priceLowered: boolean;
   areaM2: number | null;
@@ -58,7 +59,11 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
   const priceText = text(item.querySelector('.price'));
   const amount = priceText ? Number(priceText.replace(/[^\d]/g, '')) : NaN;
   const priceCurrency = priceText?.includes('€') ? 'EUR' : priceText?.includes('$') ? 'USD' : priceText?.includes('лв') ? 'BGN' : null;
-  const typeMatch = title?.match(/(\d+\s*[-–]?\s*СТАЕН)/i);
+  const typeMatch = propertyTypeCatalog
+    .flatMap(type => [type.cardLabel, ...(type.slug === 'garazh-parkomyasto' ? ['ГАРАЖ', 'ПАРКОМЯСТО'] : [])]
+      .map(label => ({ type, label })))
+    .sort((a, b) => b.label.length - a.label.length)
+    .find(({ label }) => title?.toLocaleLowerCase().includes(label.toLocaleLowerCase()));
   const floorMatch = info.match(/(Партер|\d+\s*[-–]?\s*(?:ви|ри|ти|ми))(?:\s*ет\.?)*\s*(?:от\s*(\d+))?/i);
   const floorNumber = floorMatch?.[1]?.match(/\d+/)?.[0];
   const promoAsset = item.querySelector('img.promoLine')?.getAttribute('src') ?? '';
@@ -77,7 +82,11 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
   return {
     id, url: pageUrl, title,
     dealType: /наем|отдава/i.test(title ?? '') ? 'rent' : /продава/i.test(title ?? '') ? 'sale' : 'unknown',
-    propertyType: typeMatch ? { label: typeMatch[1].replace(/\s+/g, ''), rooms: Number(typeMatch[1].match(/\d+/)?.[0]) || null } : null,
+    propertyType: typeMatch ? {
+      slug: typeMatch.type.slug,
+      label: typeMatch.label,
+      rooms: Number(typeMatch.label.match(/\d+/)?.[0]) || null,
+    } : null,
     price: Number.isFinite(amount) && priceCurrency ? { amount, currency: priceCurrency } : null,
     priceLowered: item.querySelector('.price.DOWN') !== null,
     areaM2: areaMatch ? Number(areaMatch[1].replace(/\s/g, '')) : null,
