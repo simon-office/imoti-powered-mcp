@@ -2,6 +2,60 @@
 
 These examples show the intended tool calls, not guaranteed results. The search tool supports Sofia criteria; describe unsupported preferences honestly instead of treating them as verified filters.
 
+Prices below are synthetic. Search prices use EUR; rental amounts are EUR per month. When a request gives leva, convert by dividing by 1.95583 and explain the conversion. Reply in the language used by the requester.
+
+## Buying and renting in English, Bulgarian and Russian
+
+Each request demonstrates a valid `search_listings` input shape. User wording is intentionally synthetic.
+
+### English — buy
+
+Request: “Buy a two-bedroom flat in Sofia up to €220,000.” Two bedrooms normally mean three rooms.
+
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"София","districts":[],"propertyTypes":["tristaen"],"rooms":{"min":3,"max":3},"priceMax":220000},"limit":10}}
+```
+
+### English — rent
+
+Request: “Rent a furnished one-bedroom flat in Bankya for up to €700 per month.” Check furnishing in the description.
+
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"София","districts":["Банкя"],"propertyTypes":["dvustaen"],"priceMax":700},"limit":10}}
+```
+
+### Bulgarian — покупка
+
+Заявка: „Търся тристаен апартамент в София до 300 000 евро.“
+
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"София","districts":[],"propertyTypes":["tristaen"],"rooms":{"min":3,"max":3},"priceMax":300000},"limit":10}}
+```
+
+### Bulgarian — наем
+
+Заявка: „Търся двустаен под наем в Банкя до 900 лева на месец.“ Convert the maximum to about €460.02/month (900 ÷ 1.95583) and state this is approximate.
+
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"София","districts":["Банкя"],"propertyTypes":["dvustaen"],"rooms":{"min":2,"max":2},"priceMax":460.02},"limit":10}}
+```
+
+### Русский — покупка
+
+Запрос: «Ищу однушку в Софии до 120 000 евро.» Уточните, что «однушка» означает однокомнатную.
+
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"София","districts":[],"propertyTypes":["ednostaen"],"rooms":{"min":1,"max":1},"priceMax":120000},"limit":10}}
+```
+
+### Русский — аренда
+
+Запрос: «Снять двухкомнатную квартиру в Банкя до 800 евро в месяц.» «Квартира» может означать квартиру или комнату — уточните при необходимости.
+
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"София","districts":["Банкя"],"propertyTypes":["dvustaen"],"rooms":{"min":2,"max":2},"priceMax":800},"limit":10}}
+```
+
 ## Two-bedroom home near the metro
 
 Request: “Find a two-bedroom apartment in Sofia under €350,000, within walking distance of the metro, suitable for moving in without major renovation. Avoid options similar to the ones I rejected.”

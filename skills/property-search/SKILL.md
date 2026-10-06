@@ -1,15 +1,19 @@
 ---
 name: property-search
-description: Turn a home-buying request into verified imot.bg search criteria, inspect promising listings, and explain evidence and uncertainty in a shortlist.
+description: Turn English, Bulgarian or Russian buying and renting requests into verified imot.bg searches, inspect promising listings, and explain evidence and uncertainty in the user's language.
 ---
 
 # Property search
 
-Use `search_listings` for searches in Sofia. Translate the request into explicit criteria before calling it. Put only firm constraints in criteria; treat preferences as ranking or explanation guidance, not reasons to silently exclude a listing. The tool accepts criteria and an optional result `limit` (10–20, default 15). Districts are supplied by name. Convert stated price and area bounds into `priceMin`/`priceMax` and `areaMin`/`areaMax`.
+Use `search_listings` for searches in Sofia. Support buying (`deal: "sale"`) and renting (`deal: "rent"`); answer in the user's language (English, Bulgarian or Russian). Translate the request into explicit criteria before calling it. Put only firm constraints in criteria; treat preferences as ranking or explanation guidance, not reasons to silently exclude a listing. The tool accepts criteria and an optional result `limit` (10–20, default 15). Districts are supplied by name. `priceMin`/`priceMax` are EUR amounts; rent is EUR per month. If the user gives leva, convert using 1 EUR = 1.95583 BGN (divide leva by 1.95583) and state the conversion.
 
 Rooms count the living room. A request for two bedrooms normally means a three-room apartment (`3-СТАЕН`); verify the actual bedroom layout from the listing description rather than assuming the category proves it. Include requested property types and room bounds where appropriate. If district names are ambiguous or a desired constraint cannot be represented, explain that and keep it as a preference instead of inventing a filter.
 
+Russian «квартира» is ambiguous: it can mean a flat/apartment or a room; clarify if needed. Translate layout conventions carefully: “two-bedroom” / “две спални” normally maps to `тристаен` (three rooms); Russian «двухкомнатная» maps to `двустаен` (two rooms); «однушка» maps to `едностаен` (one room). Room counts include the living room. Whether a rental is furnished, allows pets, and states the deposit, commission and lease duration are description checks, not guaranteed search filters; inspect `get_listing` and report when the description is silent.
+
 Call `get_listing` for promising search results when the shortlist needs the full description, floor/layout details, VAT terms, parking costs, or other listing-page evidence. Use the returned listing id. Do not claim facts that the fields, description or photos do not support. If evidence conflicts, state the conflict.
+
+Use `area_context` when the user asks about nearby transit, parks, schools or shops; state the location precision and any unavailable data. Use `get_listing_photos` when photos could help assess visible condition or layout, and state coverage/uncertainty. Use `compare_listings` to compare a shortlist on evidence and asking-price positioning. Use `save_note` for a user-requested private viewing/preference note, `save_search` when they ask to remember search criteria, and `watch_listing` when they ask to monitor a listing. Do not save or watch implicitly.
 
 For each shortlist entry, explain:
 
@@ -19,6 +23,8 @@ For each shortlist entry, explain:
 - the precision of the location provided (exact address, street, neighbourhood or unknown).
 
 Call a price an **asking price**, never a sale price. If a listing later cannot be found, say it is **no longer observed**, not that it was sold. Do not infer or claim hidden defects from listing text or photos. Be clear when a preference such as walkability or renovation readiness has not been verified by available tools.
+
+Searches are bounded and may be truncated by page/result limits. Report the returned count, limit and any truncation/coverage metadata; say “among the results checked” and never imply that the search covered every available listing.
 
 ## Worked example
 
