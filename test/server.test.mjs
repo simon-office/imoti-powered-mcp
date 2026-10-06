@@ -425,6 +425,28 @@ for (const scenario of [
   });
 }
 
+test('get_listing reconciles structured price and district against synthetic description claims', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-description-conflicts-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const id = '1c100000000000092';
+  const url = `https://www.imot.bg/obiava-${id}-synthetic`;
+  const searchFixture = join(directory, 'search.html');
+  const detailFixture = join(directory, 'detail.html');
+  try {
+    await writeFile(searchFixture, `<div class="item" id="ida${id}"><a class="title" href="${url}">Продава 2-СТАЕН<location>град София, Младост 3</location></a><div class="price">620 €</div></div>`);
+    await writeFile(detailFixture, '<div class="advHeader"><div class="title">Продава 2-СТАЕН</div><div class="location">София, Младост 3</div></div><div class="adPrice"><div class="price"><div class="cena">620 €</div></div></div><div class="moreInfo"><div class="text">Измислено жилище в кв. Младост 4 за 700 EUR.</div></div>');
+    const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, searchFixture], [/obiava-/, detailFixture]]);
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'get_listing', arguments: { url } });
+      const discrepancies = result.structuredContent.evidenceReconciliation.discrepancies;
+      const price = discrepancies.find(item => item.field === 'price');
+      assert.deepEqual(price, { field: 'price', card: { description: 700 }, detail: { amount: 620, currency: 'EUR' } });
+      const location = discrepancies.find(item => item.field === 'location');
+      assert.deepEqual(location, { field: 'location', card: { descriptionDistrict: 'Младост 4' }, detail: { district: 'Младост 3' } });
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('get_listing_photos returns ordered bounded metadata and does not persist image bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-'));
   const databasePath = join(directory, 'test.db');
