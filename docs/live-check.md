@@ -1,5 +1,164 @@
 # Owner live check (stage 1)
 
+## Owner live check (stage 5: multilingual search coverage)
+
+Run these nine plain-language requests in separate turns on Simon's machine with the stage 5 plugin and live site access.
+These checks are not results: record only what the tools actually return. Use the requests verbatim, including their
+language. There are five purchases and four rentals (three English, three Bulgarian, three Russian).
+
+### Exact requests
+
+1. **E1 buy (English):** Hi! We're relocating to Sofia next spring and want to buy a two bedroom apartment. Budget is about 200k euro. We don't know the city at all – somewhere safe, green, and not too far from the center would be great, ideally close to a metro station since we won't have a car. What would you suggest?
+2. **E2 rent (English):** I just got a job at Business Park Sofia and need to rent a furnished one-bedroom flat, max 800 EUR per month. I have a cat. I'd like to walk or take a short ride to the office. Can you find something?
+3. **E3 buy a house (English):** We want to buy a small house with a garden near Sofia, quiet area, max 250,000 euros. We don't mind commuting 30-40 minutes to the city. Any options?
+4. **B1 buy (Bulgarian):** Здравейте, искам да купя апартамент в София за около 150 хиляди евро, с две спални. Нямам кола, затова ми трябва да е близо до метро. Не познавам добре кварталите, кое е добро за живеене?
+5. **B2 rent, student (Bulgarian):** Търся квартира под наем за дъщеря ми, която ще учи в София. До 500 лева на месец, най-добре близо до Студентски град или някой университет. Какво има?
+6. **B3 rent a house (Bulgarian):** Искаме да наемем къща или голям апартамент с двор в Бояна или Драгалевци, до 1500 евро на месец. Имаме две деца и куче.
+7. **R1 buy to let (Russian):** Здравствуйте! Хочу купить квартиру в Софии, чтобы сдавать в аренду. Бюджет до 120 тысяч евро, однушка или двушка, желательно недалеко от центра или университета. Что посоветуете?
+8. **R2 rent with a dog (Russian):** Ищу квартиру в аренду в Софии на длительный срок, двухкомнатную, с мебелью, до 900 евро в месяц. У нас собака, так что нужно чтобы хозяин разрешал животных, и хорошо бы рядом парк и метро.
+9. **R3 buy a new build (Russian):** Мы с мужем хотим купить трёхкомнатную квартиру в новостройке в Софии, около 250 тысяч евро, в хорошем спокойном районе, где живёт много иностранцев. Подскажите варианты.
+
+### Exact MCP calls and expected comparisons
+
+For each turn send the verbatim request above, then compare the actual tool call with the matching input below. These are
+the exact `search_listings` tool name, argument shape, and explicit search criteria; `limit: 15` is within the supported
+10–20 range. The natural-language request remains authoritative for wishes the schema cannot express (furnished, pets,
+garden, safety, green space, new build, and travel time); mark those wishes unverified unless returned evidence supports
+them. In particular, do not mistake a Sofia-wide search for a validated district or proximity filter.
+
+**E1 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["dvustaen"],"priceMax":200000,"maxPages":3},"limit":15}}
+```
+**E1 comparison:** expected to request a Sofia-wide sale search for `dvustaen` up to €200,000. Compare verified deal,
+city, type and price with output; metro proximity and safe/green/central preferences are unverified unless supported.
+
+**E2 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":[],"propertyTypes":["ednostaen"],"priceMax":800,"maxPages":3},"limit":15}}
+```
+**E2 comparison:** expected to request a Sofia-wide rent search up to €800/month. Inspect actual type/price verification;
+furnishing, cat acceptance and Business Park journey are unverified search wishes. Check the named-destination call below.
+
+**E3 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["kashta"],"priceMax":250000,"maxPages":3},"limit":15}}
+```
+**E3 comparison:** expected to request the `kashta` house type specifically, for sale up to €250,000 in Sofia. Confirm
+house type is present in verified coverage and returned results; garden, quietness and commute remain unverified wishes.
+
+**B1 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["dvustaen"],"priceMax":150000,"maxPages":3},"limit":15}}
+```
+**B1 comparison:** expected to request a Sofia-wide two-room sale search up to €150,000. Check metro as a wish separately;
+do not claim it was a filter unless a tool call actually provides that filter.
+
+**B2 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":["Студентски град"],"propertyTypes":[],"priceMax":255.65,"maxPages":3},"limit":15}}
+```
+**B2 comparison:** expected to request rent in Студентски град with the 500 BGN ceiling converted to €255.65/month
+(500 ÷ 1.95583), plus inspect whether an additional university-area search was actually made. District resolution,
+monthly unit, and original-to-euro conversion must be verified from the call and output; university proximity is not
+implied by this district alone.
+
+**B3 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":["Бояна","Драгалевци"],"propertyTypes":["kashta","mnogostaen"],"priceMax":1500,"maxPages":3},"limit":15}}
+```
+**B3 comparison:** expected to request rent up to €1,500 in both named districts and both house and large-apartment types
+at once. Verify every district and type in filter verification/coverage and note returned coverage; garden, children and
+dog acceptance are unverified unless supported by results.
+
+**R1 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["ednostaen","dvustaen"],"priceMax":120000,"maxPages":3},"limit":15}}
+```
+**R1 comparison:** expected to request both one-room and two-room sale types up to €120,000. Check both types in verified
+coverage and whether results support them. Rental yield, center and university proximity are not established by this call.
+
+**R2 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":[],"propertyTypes":["dvustaen"],"priceMax":900,"maxPages":3},"limit":15}}
+```
+**R2 comparison:** expected to request two-room rent up to €900/month. Check type, deal and monthly euro ceiling; furniture,
+dog permission and park preference need returned evidence. Metro is checked separately below.
+
+**R3 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["tristaen"],"priceMax":250000,"maxPages":3},"limit":15}}
+```
+**R3 comparison:** expected to request three-room sale up to €250,000. Verify that type and price were applied; new-build,
+quietness and international-neighbourhood wishes are unverified unless supported by returned evidence.
+
+For nearest-metro and named-place checks, select a returned listing in the owner's private session and replace the made-up
+sample ID; `area_context` only accepts a listing already stored locally. To check E1/B1/R2 metro output use:
+
+```json
+{"name":"area_context","arguments":{"listingId":"1c100000000000001","radiusMeters":1000}}
+```
+
+The comparison is the returned `nearestMetro` station and its `mode: metro`, not a nearby bus stop; distinguish the
+straight-line nearest-station measurement from any pedestrian-route distance. For E2 destination distance, supply
+Business Park Sofia's coordinates from an approved local source (do not guess coordinates):
+
+```json
+{"name":"area_context","arguments":{"listingId":"1c100000000000001","radiusMeters":1000,"destination":{"name":"Business Park Sofia","latitude":42.63,"longitude":23.38}}}
+```
+
+These coordinates are approximate call inputs, not evidence of a route; the output labels this distance straight-line.
+Record location precision and mark actual route/time unverified. Redaction is applied to listing descriptions by the
+tool; compare a privately viewed redacted result with its price and area, and confirm contacts alone are removed. Do not
+copy either version into the report.
+
+### Expected comparisons
+
+For every turn inspect the `search_listings` calls and final answer against the original wishes; don't assume a wish was a
+filter merely because it appears in prose. Check the verified filters and returned coverage, and mark each wish as
+**verified**, **unverified**, or **not applicable** with brief redacted evidence. In particular:
+
+- **District resolution:** check that every requested district resolves, including Student City/Студентски град, Бояна
+  and Драгалевци, and record whether each resolves to an accepted district/filter. A suggested area is not proof that a
+  requested district resolved.
+- **Types:** E3 must search for houses. B3 requests a house or large apartment and yard; check coverage of several types
+  at once and note which types were actually included and returned.
+- **Sofia-wide totals:** for searches without a district constraint, compare the reported Sofia-wide total with the
+  collected results, note which districts appear, whether coverage extends beyond the first alphabetical districts, and
+  how many result pages were fetched. Do not expect fixed totals; live counts vary. A low collected count is not itself
+  proof of completeness.
+- **Rent normalization:** rentals must be interpreted as a monthly amount and reported in euros. For B2, verify conversion
+  from leva at exactly 1.95583 leva per euro (500 leva ÷ 1.95583 ≈ €255.65/month); compare the original and normalized
+  amount and ensure it remains monthly.
+- **Redaction:** inspect redacted results and confirm redaction removes contacts only; prices and areas remain present and
+  unchanged. Never expose a contact while making this comparison.
+- **Metro:** for E1, B1 and R2, check the metro-stop mode and whether the nearest metro station is returned and plausibly
+  matches the evidence. Distinguish a metro station from a bus stop and do not claim walking distance from straight-line
+  distance.
+- **Named destination:** verify the distance to a named place, Business Park Sofia for E2, and whether its basis/location precision is
+  stated. Do not claim a route or travel time from a straight-line distance.
+
+Coverage is **truncated** when the configured result/page limit is reached while more results or pages are indicated.
+Coverage is **incomplete or unknown** when filters fail verification, a requested district does not resolve, a page fails,
+a protective screen interrupts the search, page totals disagree, or the run cannot establish that all intended pages were
+fetched. Record the page count and reason; never present a partial sample as a Sofia-wide exhaustive result. On a challenge,
+stop automated access and continue only by the documented manual visible-browser procedure.
+
+### Redacted owner result template
+
+Fill only after running. Use request labels, aggregate counts and synthetic labels; do not include listing identifiers or
+details that could identify a person or property.
+
+| Request | Purchase/rent | Districts resolved | Types covered | Total / collected | District span | Pages fetched | Price unit/conversion | Redaction (contacts only; price/area retained) | Metro / destination check | Verified wishes | Unverified wishes | Coverage status / reason |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| E1–R3 | | | | | | | | | | | | |
+
+**Runtime/date:** ___  **Commands/tool calls (redacted):** ___  **Errors or unavailable checks:** ___
+
+Never copy page text, personal data, contact details, photos, credentials or raw user data into reports. Do not include
+listing URLs, exact addresses, raw tool responses, database/cache contents, screenshots, or page dumps. Share only
+redacted aggregate evidence. These owner checks are not evidence until actually run and reported.
+
 ## Stage 4: release-candidate owner check
 
 Run from a clean checkout on Simon's machine. These checks have not yet been run by the owner; do not treat this procedure
