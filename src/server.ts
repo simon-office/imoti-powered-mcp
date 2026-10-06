@@ -135,7 +135,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       description: 'Compare 2–10 locally stored listings using observed asking prices and evidence. Asking-price positioning is only this supplied sample, not completed sales or market-wide valuation.',
       inputSchema: { listingIds: z.array(z.string().min(1)).min(2).max(10).refine(ids => new Set(ids).size === ids.length, 'listingIds must be unique') },
       outputSchema: z.object({
-        listings: z.array(z.object({ id: z.string(), dealType: z.enum(['sale', 'rent', 'unknown']), pricePeriod: z.string().nullable(), vatTerms: z.string().nullable(), areaScope: z.string().nullable(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
+        listings: z.array(z.object({ id: z.string(), dealType: z.enum(['sale', 'rent', 'unknown']), pricePeriod: z.string().nullable(), vatTerms: z.string().nullable(), areaScope: z.string().nullable(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), comparisonContext: z.unknown(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
         duplicateEvidence: z.array(z.object({ listingIds: z.array(z.string()).length(2), kind: z.literal('possible_repost'), confidence: z.literal('suspected'), propertyMatch: z.literal('suspected'), evidence: z.string() })),
         askingPricePositioning: z.unknown(),
       }),
@@ -151,6 +151,11 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const validArea = area !== null && Number.isFinite(area) && area > 0;
           const perM2 = amount !== null && currency && validArea ? { amount: amount / area!, currency } : null;
           const dealType = stored?.dealType === 'sale' || stored?.dealType === 'rent' ? stored.dealType : 'unknown';
+          const facts = stored?.facts as Record<string, any> | undefined;
+          const auction = facts?.auction?.value === true;
+          const floorValue = typeof stored?.floor === 'number' ? stored.floor : null;
+          const floorsTotalValue = typeof stored?.floorsTotal === 'number' ? stored.floorsTotal : null;
+          const comparisonContext = { basement: floorValue !== null && floorValue < 0, topFloor: floorValue !== null && floorsTotalValue !== null && floorValue === floorsTotalValue, floor: floorValue, floorsTotal: floorsTotalValue, construction: stored?.construction ?? null, constructionPeriod: stored?.constructionPeriod ?? null, legalStatus: facts?.newBuildStage?.value ?? null, vat: typeof stored?.vatNote === 'string' ? stored.vatNote : facts?.vat?.value ?? null };
           const vatTerms = typeof stored?.vatNote === 'string' ? stored.vatNote : typeof (stored?.facts as any)?.vat?.value === 'string' ? (stored?.facts as any).vat.value : null;
           const areaScope = typeof stored?.areaScope === 'string' ? stored.areaScope : null;
           if (areaScope && !/whole|total|цял/i.test(areaScope)) explanations.pricePerSquareMeter = 'Area may cover only part of the property; €/m² is not a whole-property comparison.';
@@ -158,6 +163,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           else {
             if (amount === null || !currency) explanations.price = 'A valid asking price and currency were not observed.';
             if (!validArea) explanations.areaM2 = 'A valid area in square metres was not observed.';
+            if (auction) explanations.price = 'Auction/public-sale price; not pooled with ordinary asking prices.';
             if (!perM2) explanations.pricePerSquareMeter = 'Requires a valid asking price, currency, and area in square metres.';
             if (stored.photoAssessment === undefined && stored.photo_assessment === undefined) explanations.photoAssessment = 'No photo assessment is stored.';
             if (!stored.location) explanations.location = 'No location evidence is stored.';
@@ -169,7 +175,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           if (amount === null || !currency) uncertainty.push('Asking price or currency is unavailable.');
           if (!validArea) uncertainty.push('Area in square metres is unavailable.');
           if (areaScope && !/whole|total|цял/i.test(areaScope)) uncertainty.push('Area may cover only part of the property; €/m² is not a whole-property comparison.');
-          return { id, dealType, pricePeriod: dealType === 'rent' ? 'per month' : dealType === 'sale' ? 'asking price' : null, vatTerms, areaScope, price: amount === null || !currency ? null : { amount, currency }, areaM2: validArea ? area : null, pricePerSquareMeter: perM2, photoAssessment, location, uncertainty, observedAt: stored?.lastObservedAt ?? null, explanations };
+          return { id, dealType, pricePeriod: auction ? 'auction/public-sale price' : dealType === 'rent' ? 'per month' : dealType === 'sale' ? 'asking price' : null, vatTerms, areaScope, price: amount === null || !currency ? null : { amount, currency }, areaM2: validArea ? area : null, pricePerSquareMeter: perM2, comparisonContext, photoAssessment, location, uncertainty, observedAt: stored?.lastObservedAt ?? null, explanations };
         });
         const knownDeals = new Set(listings.map(item => item.dealType));
         const mixedDeals = knownDeals.has('sale') && knownDeals.has('rent');
@@ -181,7 +187,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const duplicateEvidence = [...byProperty.entries()].flatMap(([key, matches]) => matches.length > 1 && new Set(matches.map(item => item.dealType)).size > 1
           ? [{ listingIds: matches.map(item => item.id).slice(0, 2) as [string, string], kind: 'possible_repost' as const, confidence: 'suspected' as const, propertyMatch: 'suspected' as const, evidence: `Listings share fabricated/property key ${key} and differ by category; this is a suspected physical-property match, not confirmation.` }]
           : []);
-        const amounts = listings.flatMap(item => !mixedDeals && item.price ? [item.price as {amount:number;currency:string}] : []);
+        const amounts = listings.flatMap(item => !mixedDeals && item.price && item.pricePeriod !== 'auction/public-sale price' ? [item.price as {amount:number;currency:string}] : []);
         const currency = amounts.length && amounts.every(item => item.currency === amounts[0].currency) ? amounts[0].currency : null;
         const dates = listings.flatMap(item => item.price && item.observedAt ? [item.observedAt] : []).sort();
         let positioning: unknown = { basis: mixedDeals ? 'sale and rent prices are not combined; compare each listing in its labelled deal category' : 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: amounts.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: null, median: null, maximum: null };

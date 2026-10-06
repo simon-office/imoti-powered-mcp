@@ -38,6 +38,12 @@ test('explicitly marks non-residential results when the search type is unrestric
   assert.equal(page.listings[0].residential, false);
 });
 
+test('does not classify atelier cards as residential', () => {
+  const page = parseSearchResults('<div class="item" id="ida-fake"><a class="title" href="/obiava-fake">Продава АТЕЛИЕ, ТАВАН</a></div>');
+  assert.equal(page.listings[0].propertyType.slug, 'atelie-tavan');
+  assert.equal(page.listings[0].residential, false);
+});
+
 test('supports empty and final result pages and skips news or malformed items without listing ids', async () => {
   const empty = parseSearchResults(await fixture('search-empty.html'));
   assert.deepEqual(empty.listings, []);

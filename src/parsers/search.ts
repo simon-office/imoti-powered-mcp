@@ -84,7 +84,7 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
       label: typeMatch.label,
       rooms: Number(typeMatch.label.match(/\d+/)?.[0]) || null,
     } : null,
-    residential: typeMatch ? ['ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'atelie-tavan', 'etazh-ot-kashta', 'kashta', 'vila', 'staya'].includes(typeMatch.type.slug) : null,
+    residential: typeMatch ? ['ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'etazh-ot-kashta', 'kashta', 'vila', 'staya'].includes(typeMatch.type.slug) : null,
     price: Number.isFinite(amount) && priceCurrency ? { amount, currency: priceCurrency } : null,
     priceLowered: item.querySelector('.price.DOWN') !== null,
     areaM2: areaMatch ? Number(areaMatch[1].replace(/\s/g, '')) : null,

@@ -51,6 +51,25 @@ test('preserves no-buyer-commission negation and its exact source sentence', () 
   assert.deepEqual(result.facts.commission, { value: false, source: sentence });
 });
 
+test('rejects weak evidence and keeps complete negated finance and VAT evidence', () => {
+  const html = '<div class="adPrice"><div class="price"><div>Не се начислява ДДС при продажбата.</div></div></div><div class="moreInfo"><div class="text">Апартаментът е подходящ за търговски цели. Имотът не се продава на търг. Комисиона има само при допълнителна услуга. Депозитът се уточнява допълнително. Пред Акт 16 и гъвкави схеми на плащане. Изложение юг, ток и вода.</div></div>';
+  const facts = parseListing(html).facts;
+  assert.equal(facts.auction, null);
+  assert.equal(facts.commission, null);
+  assert.equal(facts.deposit, null);
+  assert.equal(facts.newBuildStage, null);
+  assert.equal(facts.utilities, null);
+  assert.deepEqual(facts.vat, { value: 'Не се начислява ДДС при продажбата.', source: 'Не се начислява ДДС при продажбата.' });
+});
+
+test('auction and build stage need explicit affirmative transaction and construction statements', () => {
+  const html = '<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">Обявата е за публична продан чрез търг. Сградата е в процес на строителство. Имотът е на топъл юг.</div></div>';
+  const facts = parseListing(html).facts;
+  assert.deepEqual(facts.auction, { value: true, source: 'Обявата е за публична продан чрез търг.' });
+  assert.deepEqual(facts.newBuildStage, { value: 'under construction', source: 'Сградата е в процес на строителство.' });
+  assert.equal(facts.utilities, null);
+});
+
 test('recognizes all grammatical furnished forms, explicit pet prohibitions, and supported construction stages', () => {
   const cases = [
     ['Обзаведена квартира.', true], ['Обзаведено жилище.', true], ['Необзаведена стая.', false],
