@@ -160,12 +160,15 @@ test('reports JPEG SOF and PNG IHDR dimensions and deterministic inventory thres
   const small = Buffer.from(jpeg); small[9] = 0x02; small[10] = 0x7f;
   const narrow = Buffer.from(jpeg); narrow[9] = 0x01; narrow[10] = 0x2c;
   const wide = Buffer.from(jpeg); wide[9] = 0x05; wide[10] = 0x01;
+  const standard = Buffer.from(jpeg); standard[9] = 0x02; standard[10] = 0x58; standard[11] = 0x03; standard[12] = 0x20;
   const thresholds = analyzePhotos([
+    { listingId: 'fake', reference: 'standard-800x600', mediaType: 'image/jpeg', bytes: standard },
     { listingId: 'fake', reference: 'small', mediaType: 'image/jpeg', bytes: small },
     { listingId: 'fake', reference: 'narrow', mediaType: 'image/jpeg', bytes: narrow },
     { listingId: 'fake', reference: 'wide', mediaType: 'image/jpeg', bytes: wide },
   ]);
-  assert.match(thresholds.images[0].observations.join(' '), /below the 640-pixel/i);
-  assert.match(thresholds.images[1].observations.join(' '), /outside the 0.5–2.0/i);
+  assert.doesNotMatch(thresholds.images[0].observations.join(' '), /below the 640-pixel/i);
+  assert.doesNotMatch(thresholds.images[1].observations.join(' '), /below the 640-pixel/i);
   assert.match(thresholds.images[2].observations.join(' '), /outside the 0.5–2.0/i);
+  assert.match(thresholds.images[3].observations.join(' '), /outside the 0.5–2.0/i);
 });

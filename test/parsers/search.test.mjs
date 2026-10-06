@@ -112,3 +112,13 @@ test('parses all catalog property categories from synthetic cards including both
   const listings = parseSearchResults(html).listings;
   assert.deepEqual(listings.map(({ propertyType }) => propertyType?.slug), propertyTypeCatalog.map(({ slug }) => slug));
 });
+
+test('URL category types abbreviated industrial cards and overrides subtype-like labels', async () => {
+  assert.equal(propertyTypeCatalog.find(type => type.slug === 'promishleno-pomeshtenie').cardLabel, 'ПРОМ. ПОМЕЩЕНИЕ');
+  const industrial = parseSearchResults(await fixture('search-promishleno-pomeshtenie.html'), 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/promishleno-pomeshtenie');
+  assert.equal(industrial.listings[0].propertyType.slug, 'promishleno-pomeshtenie');
+  const business = parseSearchResults(await fixture('search-biznes-imot.html'), 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/biznes-imot');
+  assert.deepEqual(business.listings[0].propertyType, { slug: 'biznes-imot', label: 'БАНКОВ ОФИС', rooms: null });
+  const fallback = parseSearchResults('<div class="item" id="ida-office"><a class="title">Продава ОФИС</a></div>');
+  assert.equal(fallback.listings[0].propertyType.slug, 'ofis');
+});

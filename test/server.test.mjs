@@ -326,6 +326,22 @@ test('broad searches retain matching promoted cards and count promoted type-filt
   } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
 });
 
+test('zero search results report type-filter omissions without claiming verified filters', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-type-omission-zero-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const fixture = new URL('./fixtures/search-type-omission.html', import.meta.url);
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi\//, fixture]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia', propertyTypes: ['ednostaen'], maxPages: 1 }, limit: 10 } });
+      assert.equal(result.structuredContent.listings.length, 0);
+      assert.equal(result.structuredContent.omittedByTypeFilter, 1);
+      assert.match(result.content[0].text, /1 cards were omitted/);
+      assert.doesNotMatch(result.content[0].text, /filters verified/);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('search_listings matches every catalog category and counts cards omitted by type', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-type-catalog-'));
   const storage = openStorage(join(directory, 'test.db'));

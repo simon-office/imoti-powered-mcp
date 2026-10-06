@@ -56,7 +56,7 @@ function streetFromUrl(value: string | null): string | null {
   return name ? `${/^(?:boulevard|bul)$/i.test(match[1]) ? 'бул.' : 'ул.'} ${name}` : null;
 }
 
-function parseItem(item: HTMLElement, base: string): ListingSummary {
+function parseItem(item: HTMLElement, base: string, categorySlug: string | null): ListingSummary {
   const titleNode = item.querySelector('a.title');
   const locationNode = titleNode?.querySelector('location');
   const rawLocation = text(locationNode);
@@ -66,11 +66,15 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
   const priceText = text(item.querySelector('.price'));
   const amount = priceText ? Number(priceText.replace(/[^\d]/g, '')) : NaN;
   const priceCurrency = priceText?.includes('€') ? 'EUR' : priceText?.includes('$') ? 'USD' : priceText?.includes('лв') ? 'BGN' : null;
-  const typeMatch = propertyTypeCatalog
-    .flatMap(type => [type.cardLabel, ...(type.slug === 'garazh-parkomyasto' ? ['ГАРАЖ', 'ПАРКОМЯСТО'] : [])]
+  const titleTypeLabel = title?.replace(/^(?:продава|дава под наем)\s*/i, '').trim() ?? '';
+  const categoryType = categorySlug ? propertyTypeCatalog.find(type => type.slug === categorySlug) : undefined;
+  const matchedType = propertyTypeCatalog
+    .flatMap(type => [type.cardLabel, ...(type.slug === 'promishleno-pomeshtenie' ? ['ПРОМИШЛЕНО ПОМЕЩЕНИЕ'] : []), ...(type.slug === 'garazh-parkomyasto' ? ['ГАРАЖ', 'ПАРКОМЯСТО'] : [])]
       .map(label => ({ type, label })))
     .sort((a, b) => b.label.length - a.label.length)
     .find(({ label }) => title?.toLocaleLowerCase().includes(label.toLocaleLowerCase()));
+  const businessSubtype = categoryType?.slug === 'biznes-imot' && /^(?:банков|финансов|застрахователен)\s/i.test(titleTypeLabel);
+  const typeMatch = businessSubtype ? { type: categoryType!, label: titleTypeLabel } : matchedType;
   const floorMatch = info.match(/(Партер|\d+\s*[-–]?\s*(?:ви|ри|ти|ми))(?:\s*ет\.?)*\s*(?:от\s*(\d+))?/i);
   const floorNumber = floorMatch?.[1]?.match(/\d+/)?.[0];
   const promoAsset = item.querySelector('img.promoLine')?.getAttribute('src') ?? '';
@@ -113,8 +117,10 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
 export function parseSearchResults(input: string | Uint8Array, pageUrl = 'https://www.imot.bg/'): SearchPage {
   const html = typeof input === 'string' ? input : new TextDecoder('windows-1251').decode(input);
   const document = parse(html);
+  const pathParts = new URL(pageUrl).pathname.split('/').filter(Boolean);
+  const candidate = pathParts.find(part => propertyTypeCatalog.some(type => type.slug === part)) ?? null;
   const listings: ListingSummary[] = document.querySelectorAll('div.item').filter((item) => /^ida.+/.test(item.getAttribute('id') ?? '')).map((item) => {
-    try { return parseItem(item, pageUrl); }
+    try { return parseItem(item, pageUrl, candidate); }
     catch {
       return {
         id: null, url: null, title: null, dealType: 'unknown', propertyType: null, residential: null, price: null, priceLowered: false,
