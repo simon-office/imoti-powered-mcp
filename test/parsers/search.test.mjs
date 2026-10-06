@@ -78,6 +78,15 @@ test('redacts phone numbers from seller names and card free-text fields', () => 
   assert.doesNotMatch(JSON.stringify(page), /0888\s*123\s*456|02\/123-45-67/);
 });
 
+test('redacts contact tokens without damaging listing facts in result cards', () => {
+  const page = parseSearchResults('<div class="item" id="ida-fake"><a class="title" href="/obiava-fake">Продава 3-СТАЕН Контакт: Фиктивно Име</a><div class="price">125 000 €</div><div class="info">82 кв.м, 2027 г., реф. 123456. Тел. 0888000000, email fake@example.invalid, Viber @fake_contact</div><div class="seller"><div class="name">Агенция Пример 02/123-45-67, test@example.invalid, @fake_handle</div></div></div>');
+  const listing = page.listings[0];
+  assert.equal(listing.price.amount, 125000);
+  assert.equal(listing.areaM2, 82);
+  assert.match(JSON.stringify(listing), /82/);
+  assert.doesNotMatch(JSON.stringify(listing), /Фиктивно Име|0888000000|fake@example\.invalid|@fake_contact|02\/123-45-67|test@example\.invalid|@fake_handle/);
+});
+
 test('parses all catalog property categories from synthetic cards including both garage labels', () => {
   const html = propertyTypeCatalog.map((type, index) => {
     const label = type.slug === 'garazh-parkomyasto' ? (index % 2 ? 'ПАРКОМЯСТО' : 'ГАРАЖ') : type.cardLabel;

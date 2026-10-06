@@ -35,11 +35,18 @@ test('sanitizes phone and email spans without changing surrounding text or line 
   assert.equal(sanitizeListingText(null), null);
 });
 
+test('preserves factual numbers and sentences while removing explicitly labelled contacts', () => {
+  const result = sanitizeListingText('Площ 82 кв.м; цена 125 000 €; построена през 1980 - 1989 г.; реф. 123456. Контакт: Фиктивно Име, тел. 0888000000, email fake@example.invalid, Viber @fake_contact. До парка и училището.');
+  assert.match(result, /82 кв\.м; цена 125 000 €; построена през 1980 - 1989 г\.; реф\. 123456\./);
+  assert.match(result, /До парка и училището\./);
+  assert.doesNotMatch(result, /Фиктивно Име|0888000000|fake@example\.invalid|@fake_contact/);
+});
+
 test('redacts contacts in moreInfo text and omits dealer name and phone', async () => {
   const result = parseListing(await fixture('listing-contacts.html'));
-  assert.equal(result.description, 'Измислено жилище.\nКонтактните данни са пропуснати от синтетичния пример.\nОглед след уговорка.');
+  assert.equal(result.description, 'Измислено жилище с площ 82 кв.м, цена 100 000 € и строителство 1980 - 1989 г.; реф. 123456.\nКонтакт: [redacted], телефон [redacted], email [redacted], Viber [redacted].\nОглед след уговорка.');
   assert.deepEqual(result.seller, { kind: 'agency', name: null });
-  assert.doesNotMatch(JSON.stringify(result), /телефон|email|Измислена Агенция/i);
+  assert.doesNotMatch(JSON.stringify(result), /0888000000|fake@example\.invalid|@fake_contact|Измислена Агенция/i);
 });
 
 test('uses DOM fallback, district precision, lowered price and VAT note', async () => {
