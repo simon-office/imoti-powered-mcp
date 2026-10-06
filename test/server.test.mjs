@@ -184,6 +184,7 @@ test('search_listings reports filter mismatches, client-filters results, and per
       assert.equal(result.structuredContent.verification.ok, false);
       assert.ok(Array.isArray(result.structuredContent.verification.mismatches));
       assert.ok(result.structuredContent.verification.mismatches.length > 0);
+      assert.ok(result.structuredContent.verification.mismatches.filter(item => item.listingId).every(item => item.sourcePageUrl), 'listing-level mismatches retain their source page');
       assert.ok(result.structuredContent.excludedPromoted.some(item => item.pageUrl && item.listing.promotedTier), 'off-filter promoted cards are reported separately');
       assert.equal(result.structuredContent.query.criteria.priceMin, 100000);
       assert.ok(result.structuredContent.query.urls.length <= 3);
@@ -192,6 +193,85 @@ test('search_listings reports filter mismatches, client-filters results, and per
       assert.match(result.content[0].text, /Found 1 listing/);
       const filtered = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 130000, districts: ['iztok'] }, limit: 10 } });
       assert.deepEqual(filtered.structuredContent.listings, []);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('listing filter mismatches retain listing id and source page URL', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-mismatch-trace-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const fixture = new URL('./fixtures/search-filter-mismatch.html', import.meta.url);
+  const adapter = new FixtureAdapter([[/.*/, fixture]]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', maxPages: 1 }, limit: 10 } });
+      const mismatches = result.structuredContent.verification.mismatches.filter(item => item.listingId);
+      assert.ok(mismatches.length > 0);
+      assert.ok(mismatches.every(item => typeof item.listingId === 'string' && typeof item.sourcePageUrl === 'string'));
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('multi-query search reports terminated pagination and returned versus known total', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-search-coverage-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const fixture = new URL('./fixtures/search-last-page.html', import.meta.url);
+  const adapter = new FixtureAdapter([[/.*/, fixture]]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'], propertyTypes: ['dvustaen', 'ednostaen'], maxPages: 2 }, limit: 10 } });
+      assert.equal(adapter.requests.length, 4, 'must not request page 2 when page 1 has no next link');
+      assert.match(result.content[0].text, /returned.*total|out of/i);
+      assert.deepEqual(result.structuredContent.districtCounts.iztok, 0);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search reports truncation when promoted cards consume the configured page cap', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-promoted-cap-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const fixture = new URL('./fixtures/search-promoted-cap.html', import.meta.url);
+  const adapter = new FixtureAdapter([[/.*/, fixture]]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok'], priceMax: 100000, maxPages: 1 }, limit: 10 } });
+      assert.ok(result.structuredContent.excludedPromoted.length > 0);
+      assert.equal(result.structuredContent.truncated, true);
+      assert.match(result.content[0].text, /truncated/i);
+      assert.match(result.content[0].text, /promoted cards consumed page coverage/i);
+      assert.equal(result.structuredContent.pages[0].totalCount, 14);
+      assert.deepEqual(result.structuredContent.districtCoverage.iztok, { returned: 1, total: 14 });
+      assert.match(result.content[0].text, /returned out of 14 known total/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search reports each district returned count alongside its known site total', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-district-totals-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([
+    [/iztok/, new URL('./fixtures/search-district-iztok-total.html', import.meta.url)],
+    [/lozenets/, new URL('./fixtures/search-district-lozenets-total.html', import.meta.url)],
+  ]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'], maxPages: 1 }, limit: 10 } });
+      assert.deepEqual(result.structuredContent.districtCoverage, { iztok: { returned: 1, total: 14 }, lozenets: { returned: 1, total: 27 } });
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search merges duplicate listing ids across requested query combinations', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-search-duplicates-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const fixture = new URL('./fixtures/search-duplicate-card.html', import.meta.url);
+  const adapter = new FixtureAdapter([[/.*/, fixture]]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { districts: ['iztok', 'lozenets'], maxPages: 1 }, limit: 10 } });
+      const ids = result.structuredContent.listings.map(listing => listing.id);
+      assert.equal(ids.filter(id => id === '1c100000000000071').length, 1);
+      assert.equal(new Set(ids).size, ids.length);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
@@ -833,14 +913,15 @@ test('search visits every requested district even when the first district reache
       assert.equal(result.isError, undefined, result.content?.[0]?.text);
       assert.equal(result.structuredContent.listings.length, 10, 'the first district alone must fill the shared result limit');
       assert.deepEqual(result.structuredContent.districtCounts, { iztok: 9, lozenets: 1 });
+      assert.deepEqual(result.structuredContent.districtCoverage, { iztok: { returned: 9, total: null }, lozenets: { returned: 1, total: null } });
       assert.deepEqual(result.structuredContent.listings.map(listing => listing.id), [
         '1c100000000000011', '1c100000000000099', '1c100000000000012', '1c100000000000013', '1c100000000000014',
         '1c100000000000015', '1c100000000000016', '1c100000000000017', '1c100000000000018', '1c100000000000019',
       ]);
       assert.ok(result.structuredContent.listings.length <= 10);
       assert.equal(adapter.requests.length, result.structuredContent.query.urls.length);
-      assert.ok(result.structuredContent.query.urls.some(url => url.includes('/iztok/')));
-      assert.ok(result.structuredContent.query.urls.some(url => url.includes('/lozenets/')));
+      assert.ok(result.structuredContent.query.urls.some(url => new URL(url).pathname.split('/').includes('iztok')));
+      assert.ok(result.structuredContent.query.urls.some(url => new URL(url).pathname.split('/').includes('lozenets')));
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
@@ -896,11 +977,11 @@ test('search_listings preserves multiple property types and client-filters types
 test('search_listings round-robins requested types before applying the limit', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-type-interleave-'));
   const storage = openStorage(join(directory, 'test.db'));
-  const page = (type, label, prefix) => `<!doctype html><html><body>${Array.from({ length: 21 }, (_, index) => {
+  const page = (type, label, prefix, pageNumber = 1) => `<!doctype html><html><body>${Array.from({ length: 21 }, (_, index) => {
     const id = `1c${prefix}${String(index + 1).padStart(12, '0')}`;
     return `<div class="item" id="ida${id}"><div class="text"><div class="zaglavie"><a class="title" href="/obiava-${id}-invented">Продава ${label} <location>град София, Изток</location></a></div><div class="price">${100 + index} 000 €</div></div><div class="info">${30 + index} кв.м, invented details</div></div>`;
-  }).join('')}</body></html>`;
-  const adapter = { fetchPage: async url => ({ html: page(url.endsWith('/ednostaen') ? 'ednostaen' : 'dvustaen', url.endsWith('/ednostaen') ? '1-СТАЕН' : '2-СТАЕН', url.endsWith('/ednostaen') ? '11' : '22'), url, status: 200, fetchedAt: new Date() }), close: async () => {} };
+  }).join('')}${pageNumber < 4 ? `<a class="saveSlink next" href="/obiavi/prodazhbi/grad-sofiya/tristaen/p-${pageNumber + 1}">next</a>` : ''}</body></html>`;
+  const adapter = { fetchPage: async url => ({ html: page(url.includes('/ednostaen') ? 'ednostaen' : 'dvustaen', url.includes('/ednostaen') ? '1-СТАЕН' : '2-СТАЕН', url.includes('/ednostaen') ? '11' : '22', Number(new URL(url).pathname.match(/p-(\d+)/)?.[1] ?? 1)), url, status: 200, fetchedAt: new Date() }), close: async () => {} };
   try {
     await withClient(createServer({ adapter, storage }), async client => {
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { propertyTypes: ['ednostaen', 'dvustaen'], maxPages: 1 }, limit: 20 } });
@@ -920,7 +1001,7 @@ test('search_listings round-robins candidates across pages and reports contribut
   const page = pageNumber => `<!doctype html><html><body>${Array.from({ length: 12 }, (_, index) => {
     const id = `1c${pageNumber}${String(index + 1).padStart(14, '0')}`;
     return `<div class="item" id="ida${id}"><div class="text"><div class="zaglavie"><a class="title" href="/obiava-${id}-invented">Продава 3-СТАЕН <location>град София</location></a></div><div class="price">${100 + index} 000 €</div></div><div class="info">${50 + index} кв.м, invented details</div></div>`;
-  }).join('')}</body></html>`;
+  }).join('')}${pageNumber < 4 ? `<a class="saveSlink next" href="/obiavi/prodazhbi/grad-sofiya/tristaen/p-${pageNumber + 1}">next</a>` : ''}</body></html>`;
   const adapter = { fetchPage: async url => ({ html: page(Number(new URL(url).pathname.match(/p-(\d+)/)?.[1] ?? 1)), url, status: 200, fetchedAt: new Date() }), close: async () => {} };
   try {
     await withClient(createServer({ adapter, storage }), async client => {
@@ -938,7 +1019,7 @@ test('search_listings spreads results beyond an overfull first page by default',
   const page = pageNumber => `<!doctype html><html><body>${Array.from({ length: 12 }, (_, index) => {
     const id = `1c${pageNumber}${String(index + 1).padStart(14, '0')}`;
     return `<div class="item" id="ida${id}"><div class="text"><div class="zaglavie"><a class="title" href="/obiava-${id}-invented">Продава 3-СТАЕН <location>град София</location></a></div><div class="price">${100 + index} 000 €</div></div><div class="info">${50 + index} кв.м, invented details</div></div>`;
-  }).join('')}</body></html>`;
+  }).join('')}${Number(pageNumber) < 3 ? `<a class="saveSlink next" href="/obiavi/prodazhbi/grad-sofiya/tristaen/p-${Number(pageNumber) + 1}">next</a>` : ''}</body></html>`;
   const adapter = { fetchPage: async url => ({ html: page(Number(new URL(url).pathname.match(/p-(\d+)/)?.[1] ?? 1)), url, status: 200, fetchedAt: new Date() }), close: async () => {} };
   try {
     await withClient(createServer({ adapter, storage }), async client => {
