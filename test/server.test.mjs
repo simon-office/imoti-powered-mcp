@@ -161,8 +161,8 @@ test('search_listings reports filter mismatches, client-filters results, and per
       assert.ok(tools.tools.some(tool => tool.name === 'search_listings'));
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 100000, districts: ['iztok'] }, limit: 10 } });
       assert.equal(result.isError, undefined, result.content?.[0]?.text);
-      assert.equal(result.structuredContent.listings.length, 0, 'no cards from this fixture satisfy the requested filters');
-      assert.equal(result.structuredContent.excludedPromoted.length, 9, 'three fixture promoted cards are excluded from each of three fetched pages');
+      assert.equal(result.structuredContent.listings.length, 1, 'the promoted Iztok card matches the requested filters');
+      assert.equal(result.structuredContent.excludedPromoted.length, 6, 'the two off-filter promoted cards are excluded from each of three fetched pages');
       assert.ok(result.structuredContent.excludedPromoted.every(item => item.pageUrl && item.listing.promotedTier));
       assert.equal(result.structuredContent.verification.ok, false);
       assert.ok(Array.isArray(result.structuredContent.verification.mismatches));
@@ -171,8 +171,8 @@ test('search_listings reports filter mismatches, client-filters results, and per
       assert.equal(result.structuredContent.query.criteria.priceMin, 100000);
       assert.ok(result.structuredContent.query.urls.length <= 3);
       assert.ok(result.structuredContent.observedAt);
-      assert.equal(storage.listObservations('1c100000000000001').length, 0, 'excluded cards are not persisted as returned search observations');
-      assert.match(result.content[0].text, /Found 0 listings/);
+      assert.equal(storage.listObservations('1c100000000000001').length, 1, 'matching promoted cards are persisted as returned search observations');
+      assert.match(result.content[0].text, /Found 1 listing/);
       const filtered = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 130000, districts: ['iztok'] }, limit: 10 } });
       assert.deepEqual(filtered.structuredContent.listings, []);
     });
@@ -187,13 +187,30 @@ test('search_listings defaults limit to 15 and rejects limits outside 10–20', 
     const server = createServer({ adapter, storage });
     await withClient(server, async client => {
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: {} } });
-      assert.equal(result.structuredContent.listings.length, 1, 'off-filter promoted fixture cards are reported separately');
-      assert.equal(result.structuredContent.excludedPromoted.length, 9, 'three fixture promoted cards are excluded from each of three fetched pages');
+      assert.equal(result.structuredContent.listings.length, 4, 'matching promoted fixture cards are returned alongside the ordinary card');
+      assert.equal(result.structuredContent.excludedPromoted.length, 0, 'unfiltered promoted fixture cards are not excluded');
       const invalid = await client.callTool({ name: 'search_listings', arguments: { criteria: {}, limit: 9 } });
       assert.equal(invalid.isError, true);
       assert.match(invalid.content[0].text, /limit/i);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('broad searches retain matching promoted cards and report off-filter cards with their page URL', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-broad-promoted-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi\/grad-sofiya\/tristaen/, new URL('./fixtures/search-broad-promoted.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia', propertyTypes: ['tristaen'], priceMax: 160000, maxPages: 1 }, limit: 10 } });
+      assert.deepEqual(result.structuredContent.listings.map(item => item.id), ['1c100000000000081'], JSON.stringify({ mismatches: result.structuredContent.verification.mismatches, excluded: result.structuredContent.excludedPromoted }));
+      assert.equal(result.structuredContent.excludedPromoted.length, 1);
+      assert.equal(result.structuredContent.excludedPromoted[0].listing.id, '1c100000000000082');
+      assert.equal(result.structuredContent.excludedPromoted[0].pageUrl, result.structuredContent.pages[0].pageUrl);
+      assert.match(result.content[0].text, /Found 1 listing; filters verified/);
+      assert.doesNotMatch(result.content[0].text, /Found 0 listings; filters verified/);
+    });
+  } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
 });
 
 test('get_listing reads live data, then uses a fresh observation unless refreshed', async () => {

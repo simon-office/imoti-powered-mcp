@@ -29,7 +29,7 @@ export function buildSearchUrls(criteria: SearchCriteria): { urls: string[]; cli
 
 export function verifyFilters(criteria: SearchCriteria, page: SearchPageForVerification): { ok: boolean; mismatches: FilterMismatch[] } {
   const mismatches: FilterMismatch[] = [];
-  const applied = page.appliedFilters ?? {};
+  const applied = page.appliedFilters;
   const roomCount = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? criteria.rooms.min : undefined;
   const expectedTypes: string[] = criteria.propertyTypes.length
     ? criteria.propertyTypes
@@ -39,10 +39,12 @@ export function verifyFilters(criteria: SearchCriteria, page: SearchPageForVerif
   if (page.coverage && (expectedDistricts.some(slug => !page.coverage?.districts?.includes(slug)) || expectedTypes.some(slug => !page.coverage?.propertyTypes?.includes(slug)))) {
     mismatches.push({ filter: 'coverage', expected: { districts: expectedDistricts, propertyTypes: expectedTypes }, observed: page.coverage });
   }
-  check('deal', criteria.deal, applied.deal);
-  check('city', criteria.city, applied.city);
-  if (criteria.districts.length) check('district', criteria.districts.map((name) => resolveDistrict(name).slug), applied.district ? resolveDistrict(applied.district).slug : null);
-  if (expectedTypes.length) check('type', expectedTypes, applied.type);
+  if (applied) {
+    check('deal', criteria.deal, applied.deal);
+    check('city', criteria.city, applied.city);
+    if (criteria.districts.length) check('district', criteria.districts.map((name) => resolveDistrict(name).slug), applied.district ? resolveDistrict(applied.district).slug : null);
+    if (expectedTypes.length) check('type', expectedTypes, applied.type);
+  }
   page.listings.forEach((listing) => {
     if (listing.dealType) check('deal', criteria.deal, listing.dealType);
     if (listing.location?.city) check('city', criteria.city, listing.location.city);
