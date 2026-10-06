@@ -11,7 +11,9 @@ export type FilterMismatch = { filter: string; expected: unknown; observed: unkn
 export function buildSearchUrls(criteria: SearchCriteria): { urls: string[]; clientFilters: { areaMin?: number; areaMax?: number } } {
   const roomCount = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? criteria.rooms.min : undefined;
   const types = criteria.propertyTypes.length ? criteria.propertyTypes : [roomCount === undefined ? undefined : roomCountToPropertyType(roomCount)];
-  const districts = criteria.districts.length ? criteria.districts.map(resolveDistrict) : [null];
+  const districts = criteria.districts.length
+    ? [...new Map(criteria.districts.map(name => resolveDistrict(name)).map(district => [district.slug, district])).values()]
+    : [null];
   const urls: string[] = [];
   // Schedule every requested district/type pair on page one before paging
   // any pair, so the bound cannot silently starve a requested category.

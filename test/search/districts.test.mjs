@@ -28,6 +28,16 @@ test('broad district scheduling reaches synthetic results at both alphabetical e
   assert.deepEqual(result.urls.map(url => new URL(url).pathname.split('/').at(-2)), ['7-mi-11-ti-kilometar', 'zaharna-fabrika']);
 });
 
+test('search URL planning deduplicates equivalent district names after slug resolution, preserving first occurrence order', () => {
+  const result = buildSearchUrls({ deal: 'sale', city: 'Sofia', districts: ['Център', 'Tsentar'], propertyTypes: ['tristaen'], rooms: {}, maxPages: 1 });
+  assert.deepEqual(result.urls, ['https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/tsentar/tristaen']);
+});
+
+test('search URL planning retains distinct resolved districts in requested order', () => {
+  const result = buildSearchUrls({ deal: 'sale', city: 'Sofia', districts: ['Лозенец', 'Център'], propertyTypes: ['tristaen'], rooms: {}, maxPages: 1 });
+  assert.deepEqual(result.urls.map(url => new URL(url).pathname.split('/').at(-2)), ['lozenets', 'tsentar']);
+});
+
 test('property type catalog carries all 20 site-listed slugs and card labels', () => {
   assert.equal(propertyTypeCatalog.length, 20);
   assert.deepEqual(propertyTypeCatalog.map(({ slug }) => slug), ['ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'atelie-tavan', 'etazh-ot-kashta', 'kashta', 'vila', 'garazh-parkomyasto', 'ofis', 'magazin', 'zavedenie', 'sklad', 'promishleno-pomeshtenie', 'hotel', 'biznes-imot', 'partsel', 'staya']);
