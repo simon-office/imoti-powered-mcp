@@ -77,6 +77,24 @@ test('does not treat a negated public sale as auction evidence or commission boi
   assert.equal(facts.commission, null);
 });
 
+test('rejects auction mentions explicitly unrelated to the listed property', () => {
+  for (const sentence of [
+    'Участие в търг за складово оборудване не е свързано с този апартамент.',
+    'Търг за измислено оборудване няма отношение към този имот.',
+    'Обявата за публична продан не се отнася до този апартамент.',
+  ]) {
+    const facts = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${sentence}</div></div>`).facts;
+    assert.equal(facts.auction, null, sentence);
+  }
+});
+
+test('retains affirmative listing auction evidence after an unrelated auction mention', () => {
+  const unrelated = 'Участие в търг за складово оборудване не е свързано с този апартамент.';
+  const sentence = 'Имотът се предлага на търг.';
+  const facts = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${unrelated} ${sentence}</div></div>`).facts;
+  assert.deepEqual(facts.auction, { value: true, source: sentence });
+});
+
 test('retains promotional first-month rent and full source while avoiding inference from category', () => {
   const sentence = 'Първият месец наемът е 300 евро, след това 500 евро.';
   const facts = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${sentence}</div></div>`).facts;
