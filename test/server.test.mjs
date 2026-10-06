@@ -370,6 +370,9 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
     await withClient(server, async client => {
       const first = await client.callTool({ name: 'get_listing', arguments: { url } });
       assert.equal(first.structuredContent.status, undefined);
+      assert.equal(first.structuredContent.listing.seller.name, 'Картична Агенция');
+      assert.equal(first.structuredContent.listing.seller.authority, 'detail');
+      assert.equal(first.structuredContent.listing.seller.conflict, false);
       assert.equal(first.structuredContent.evidenceReconciliation.authority, 'detail');
       assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'priceLowered'));
       assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'seller'));
@@ -607,6 +610,24 @@ test('comparison labels rent monthly, preserves deal and VAT, and warns for part
       assert.match(sale.uncertainty.join(' '), /partial|part of the property/i);
       assert.equal(rent.dealType, 'rent');
       assert.equal(rent.pricePeriod, 'per month');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('comparison excludes auction amounts from asking-price pooling and puts property context beside €/m²', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-auction-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'ordinary-a', dealType: 'sale', price: { amount: 200000, currency: 'EUR' }, areaM2: 100, floor: -1, construction: 'Тухла', constructionPeriod: '2020 г.', vatNote: 'Без ДДС' });
+  storage.upsertListing({ id: 'auction-b', dealType: 'sale', price: { amount: 100000, currency: 'EUR' }, areaM2: 80, facts: { auction: { value: true, source: 'На търг.' } } });
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['ordinary-a', 'auction-b'] } });
+      const [ordinary, auction] = result.structuredContent.listings;
+      assert.equal(auction.pricePeriod, 'auction/public-sale price');
+      assert.equal(result.structuredContent.askingPricePositioning.sampleSize, 1);
+      assert.equal(ordinary.comparisonContext.basement, true);
+      assert.equal(ordinary.comparisonContext.construction, 'Тухла');
+      assert.equal(ordinary.comparisonContext.vat, 'Без ДДС');
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

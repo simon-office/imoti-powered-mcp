@@ -70,6 +70,19 @@ test('auction and build stage need explicit affirmative transaction and construc
   assert.equal(facts.utilities, null);
 });
 
+test('does not treat a negated public sale as auction evidence or commission boilerplate as a fee', () => {
+  const sentence = 'Не е публична продан.';
+  const facts = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${sentence} Агенцията предлага съдействие с комисиона от 500 евро.</div></div>`).facts;
+  assert.equal(facts.auction, null);
+  assert.equal(facts.commission, null);
+});
+
+test('retains promotional first-month rent and full source while avoiding inference from category', () => {
+  const sentence = 'Първият месец наемът е 300 евро, след това 500 евро.';
+  const facts = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${sentence}</div></div>`).facts;
+  assert.deepEqual(facts.firstMonthRent, { value: sentence, source: sentence });
+});
+
 test('recognizes all grammatical furnished forms, explicit pet prohibitions, and supported construction stages', () => {
   const cases = [
     ['Обзаведена квартира.', true], ['Обзаведено жилище.', true], ['Необзаведена стая.', false],

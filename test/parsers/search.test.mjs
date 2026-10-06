@@ -17,7 +17,7 @@ test('parses the synthetic result items and every listing summary field', async 
     id: '1c100000000000001', url: 'https://www.imot.bg/obiava-1c100000000000001-izmislena-oferta', title: 'Продава 3-СТАЕН', dealType: 'sale',
     propertyType: { slug: 'tristaen', label: '3-СТАЕН', rooms: 3 }, residential: true, price: { amount: 125000, currency: 'EUR' }, priceLowered: false,
     areaM2: 82, floor: 4, floorsTotal: 8, heating: 'ТЕЦ', construction: 'Тухла',
-    location: { city: 'град София', district: 'Изток', raw: 'град София, Изток' },
+    location: { city: 'град София', district: 'Изток', street: null, precision: 'neighbourhood', raw: 'град София, Изток' },
     seller: { kind: 'agency', name: 'Агенция Пример' }, photoCount: 3, promotedTier: 'BEST',
     thumbnailUrl: 'https://www.imot.bg/fake-thumb-1.jpg',
   });
@@ -42,6 +42,12 @@ test('does not classify atelier cards as residential', () => {
   const page = parseSearchResults('<div class="item" id="ida-fake"><a class="title" href="/obiava-fake">Продава АТЕЛИЕ, ТАВАН</a></div>');
   assert.equal(page.listings[0].propertyType.slug, 'atelie-tavan');
   assert.equal(page.listings[0].residential, false);
+});
+
+test('uses URL street segment for precision when the card location omits a street', () => {
+  const page = parseSearchResults('<div class="item" id="ida-fake"><a class="title" href="/obiava-fake-prodava-2-staen-ulitsa-primerna-grad-sofiya">Продава 2-СТАЕН<location>град София, Изток</location></a></div>');
+  assert.equal(page.listings[0].location.street, 'ул. Примерна');
+  assert.equal(page.listings[0].location.precision, 'street');
 });
 
 test('supports empty and final result pages and skips news or malformed items without listing ids', async () => {
