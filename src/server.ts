@@ -135,7 +135,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       description: 'Compare 2–10 locally stored listings using observed asking prices and evidence. Asking-price positioning is only this supplied sample, not completed sales or market-wide valuation.',
       inputSchema: { listingIds: z.array(z.string().min(1)).min(2).max(10).refine(ids => new Set(ids).size === ids.length, 'listingIds must be unique') },
       outputSchema: z.object({
-        listings: z.array(z.object({ id: z.string(), dealType: z.enum(['sale', 'rent', 'unknown']), pricePeriod: z.string().nullable(), vatTerms: z.string().nullable(), areaScope: z.string().nullable(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
+        listings: z.array(z.object({ id: z.string(), dealType: z.enum(['sale', 'rent', 'unknown']), pricePeriod: z.string().nullable(), vatTerms: z.string().nullable(), areaScope: z.string().nullable(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), comparisonContext: z.unknown(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
         duplicateEvidence: z.array(z.object({ listingIds: z.array(z.string()).length(2), kind: z.literal('possible_repost'), confidence: z.literal('suspected'), propertyMatch: z.literal('suspected'), evidence: z.string() })),
         askingPricePositioning: z.unknown(),
       }),
@@ -151,6 +151,11 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const validArea = area !== null && Number.isFinite(area) && area > 0;
           const perM2 = amount !== null && currency && validArea ? { amount: amount / area!, currency } : null;
           const dealType = stored?.dealType === 'sale' || stored?.dealType === 'rent' ? stored.dealType : 'unknown';
+          const facts = stored?.facts as Record<string, any> | undefined;
+          const auction = facts?.auction?.value === true;
+          const floorValue = typeof stored?.floor === 'number' ? stored.floor : null;
+          const floorsTotalValue = typeof stored?.floorsTotal === 'number' ? stored.floorsTotal : null;
+          const comparisonContext = { basement: floorValue !== null && floorValue < 0, topFloor: floorValue !== null && floorsTotalValue !== null && floorValue === floorsTotalValue, floor: floorValue, floorsTotal: floorsTotalValue, construction: stored?.construction ?? null, constructionPeriod: stored?.constructionPeriod ?? null, legalStatus: facts?.newBuildStage?.value ?? null, vat: typeof stored?.vatNote === 'string' ? stored.vatNote : facts?.vat?.value ?? null };
           const vatTerms = typeof stored?.vatNote === 'string' ? stored.vatNote : typeof (stored?.facts as any)?.vat?.value === 'string' ? (stored?.facts as any).vat.value : null;
           const areaScope = typeof stored?.areaScope === 'string' ? stored.areaScope : null;
           if (areaScope && !/whole|total|цял/i.test(areaScope)) explanations.pricePerSquareMeter = 'Area may cover only part of the property; €/m² is not a whole-property comparison.';
@@ -158,6 +163,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           else {
             if (amount === null || !currency) explanations.price = 'A valid asking price and currency were not observed.';
             if (!validArea) explanations.areaM2 = 'A valid area in square metres was not observed.';
+            if (auction) explanations.price = 'Auction/public-sale price; not pooled with ordinary asking prices.';
             if (!perM2) explanations.pricePerSquareMeter = 'Requires a valid asking price, currency, and area in square metres.';
             if (stored.photoAssessment === undefined && stored.photo_assessment === undefined) explanations.photoAssessment = 'No photo assessment is stored.';
             if (!stored.location) explanations.location = 'No location evidence is stored.';
@@ -169,7 +175,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           if (amount === null || !currency) uncertainty.push('Asking price or currency is unavailable.');
           if (!validArea) uncertainty.push('Area in square metres is unavailable.');
           if (areaScope && !/whole|total|цял/i.test(areaScope)) uncertainty.push('Area may cover only part of the property; €/m² is not a whole-property comparison.');
-          return { id, dealType, pricePeriod: dealType === 'rent' ? 'per month' : dealType === 'sale' ? 'asking price' : null, vatTerms, areaScope, price: amount === null || !currency ? null : { amount, currency }, areaM2: validArea ? area : null, pricePerSquareMeter: perM2, photoAssessment, location, uncertainty, observedAt: stored?.lastObservedAt ?? null, explanations };
+          return { id, dealType, pricePeriod: auction ? 'auction/public-sale price' : dealType === 'rent' ? 'per month' : dealType === 'sale' ? 'asking price' : null, vatTerms, areaScope, price: amount === null || !currency ? null : { amount, currency }, areaM2: validArea ? area : null, pricePerSquareMeter: perM2, comparisonContext, photoAssessment, location, uncertainty, observedAt: stored?.lastObservedAt ?? null, explanations };
         });
         const knownDeals = new Set(listings.map(item => item.dealType));
         const mixedDeals = knownDeals.has('sale') && knownDeals.has('rent');
@@ -181,7 +187,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const duplicateEvidence = [...byProperty.entries()].flatMap(([key, matches]) => matches.length > 1 && new Set(matches.map(item => item.dealType)).size > 1
           ? [{ listingIds: matches.map(item => item.id).slice(0, 2) as [string, string], kind: 'possible_repost' as const, confidence: 'suspected' as const, propertyMatch: 'suspected' as const, evidence: `Listings share fabricated/property key ${key} and differ by category; this is a suspected physical-property match, not confirmation.` }]
           : []);
-        const amounts = listings.flatMap(item => !mixedDeals && item.price ? [item.price as {amount:number;currency:string}] : []);
+        const amounts = listings.flatMap(item => !mixedDeals && item.price && item.pricePeriod !== 'auction/public-sale price' ? [item.price as {amount:number;currency:string}] : []);
         const currency = amounts.length && amounts.every(item => item.currency === amounts[0].currency) ? amounts[0].currency : null;
         const dates = listings.flatMap(item => item.price && item.observedAt ? [item.observedAt] : []).sort();
         let positioning: unknown = { basis: mixedDeals ? 'sale and rent prices are not combined; compare each listing in its labelled deal category' : 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: amounts.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: null, median: null, maximum: null };
@@ -352,7 +358,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             if (parsedPage.nextPageUrl) complete = false;
             for (const item of parsedPage.listings) {
               if (!item.id || !item.url) continue;
-              const listing: Listing = { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' };
+              const listing: Listing = { ...item, id: item.id, location: { ...item.location, precision: item.location.precision }, status: 'available' };
               current.set(item.id, { listing, sourceUrl: url });
             }
           }
@@ -371,9 +377,10 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
               ...priorSnapshot,
               ...listing,
               ...(priorSnapshot.location || listing.location ? { location: {
-                ...priorSnapshot.location,
-                ...listing.location,
-                precision: listing.location?.precision ?? priorSnapshot.location?.precision ?? 'unknown',
+                 ...priorSnapshot.location,
+                 ...listing.location,
+                street: listing.location?.street ?? priorSnapshot.location?.street,
+                precision: listing.location?.precision === 'unknown' || listing.location?.precision === 'neighbourhood' && priorSnapshot.location?.precision === 'street' ? priorSnapshot.location?.precision ?? 'unknown' : listing.location?.precision ?? priorSnapshot.location?.precision ?? 'unknown',
               } } : {}),
             } : listing;
             storage.recordObservation({ listingId: id, observedAt, sourceUrl, raw: listing, normalized: listing });
@@ -568,7 +575,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const latestCard = observations.filter(observation => !isDetailObservation(observation.sourceUrl)).at(-1)?.normalized as Listing | undefined;
         if (!refresh && latest && Date.now() - Date.parse(latest.observedAt) < 6 * 60 * 60 * 1000) {
           const cached = latest.normalized as Listing;
-          return { structuredContent: { listing: cached, evidenceReconciliation: reconcileCardDetail(latestCard, cached), observedAt: latest.observedAt, cached: true }, content: [{ type: 'text' as const, text: `${cached.title ?? `Listing ${listingId}`} (cached observation).` }] };
+          return { structuredContent: { listing: withSellerEvidence(latestCard, cached), evidenceReconciliation: reconcileCardDetail(latestCard, cached), observedAt: latest.observedAt, cached: true }, content: [{ type: 'text' as const, text: `${cached.title ?? `Listing ${listingId}`} (cached observation).` }] };
         }
         const page = await adapter.fetchPage(canonicalUrl);
         const parsed = parseListing(page.html, canonicalUrl);
@@ -577,7 +584,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const listing: Listing = unavailable ? { id: listingId, status: 'not_available' } : { ...parsed, id: listingId, status: 'available' };
         storage.upsertListing(listing, observedAt);
         storage.recordObservation({ listingId, observedAt, sourceUrl: canonicalUrl, raw: listing, normalized: listing });
-        return { structuredContent: { listing, evidenceReconciliation: unavailable ? { authority: 'detail', discrepancies: [] } : reconcileCardDetail(latestCard, listing), observedAt, cached: false }, content: [{ type: 'text' as const, text: unavailable ? `Listing ${listingId} is no longer available.` : `${parsed.title ?? `Listing ${listingId}`} refreshed.` }] };
+        return { structuredContent: { listing: withSellerEvidence(latestCard, listing), evidenceReconciliation: unavailable ? { authority: 'detail', discrepancies: [] } : reconcileCardDetail(latestCard, listing), observedAt, cached: false }, content: [{ type: 'text' as const, text: unavailable ? `Listing ${listingId} is no longer available.` : `${parsed.title ?? `Listing ${listingId}`} refreshed.` }] };
       } catch (error) { return toolError(error); }
     });
   }
@@ -594,6 +601,30 @@ function reconcileCardDetail(card: Listing | undefined, detail: Listing): { auth
     return [{ field, card: cardValue, detail: detailValue }];
   }) : [];
   return { authority: 'detail', discrepancies };
+}
+
+function withSellerEvidence(card: Listing | undefined, detail: Listing): Listing {
+  const cardSeller = card?.seller as { kind?: string; name?: string | null } | undefined;
+  const seller = detail.seller as { kind?: string; name?: string | null } | undefined;
+  const description = typeof detail.description === 'string' ? detail.description : '';
+  const descriptionSaysOwner = /(?:от\s+собственик|собственикът|частно\s+лице|директно\s+от\s+собственик)/i.test(description);
+  const descriptionSaysAgency = /(?:чрез\s+агенци|агенцията|брокер)/i.test(description);
+  const disagreement = Boolean(
+    cardSeller?.kind && cardSeller.kind !== 'unknown' && (
+      seller?.kind && seller.kind !== 'unknown' && cardSeller.kind !== seller.kind ||
+      cardSeller.kind === 'agency' && descriptionSaysOwner ||
+      cardSeller.kind === 'private' && descriptionSaysAgency
+    ),
+  );
+  return {
+    ...detail,
+    seller: {
+      ...seller,
+      name: cardSeller?.kind === 'agency' ? cardSeller.name ?? null : seller?.name ?? null,
+      authority: 'detail',
+      conflict: disagreement,
+    },
+  };
 }
 
 function haversineMeters(origin: { latitude: number; longitude: number }, latitude: number, longitude: number): number {

@@ -10,7 +10,7 @@ export type ListingDetails = {
   location: { city: string | null; district: string | null; street: string | null; precision: 'exact' | 'street' | 'neighbourhood' | 'unknown' };
   photos: string[]; seller: { kind: 'agency' | 'private' | 'unknown'; name: string | null }; vatNote: string | null;
   appliedFilters: { deal: string | null; city: string | null; district: string | null; type: string | null };
-  facts: Record<'furnished' | 'pets' | 'deposit' | 'commission' | 'utilities' | 'newBuildStage' | 'auction' | 'vat', { value: string | boolean; source: string } | null>;
+  facts: Record<'furnished' | 'pets' | 'deposit' | 'commission' | 'utilities' | 'newBuildStage' | 'auction' | 'vat' | 'firstMonthRent', { value: string | boolean; source: string } | null>;
 };
 
 type Unavailable = { status: 'not_available'; id: string | null };
@@ -52,19 +52,20 @@ export function sanitizeListingText(value: string | null): string | null {
 
 function sourcedFacts(description: string | null, vatNote: string | null): ListingDetails['facts'] {
   const sentences = (description ?? '').split(/(?<=[.!?])\s+|\n+/).map(text => text.trim()).filter(Boolean);
-  const pick = (pattern: RegExp, value: (sentence: string) => string | boolean = sentence => sentence.replace(/[.!?]+$/, '')) => {
-    const source = sentences.find(sentence => pattern.test(sentence));
+  const pick = (pattern: RegExp, value: (sentence: string) => string | boolean = sentence => sentence.replace(/[.!?]+$/, ''), accept: (sentence: string) => boolean = () => true) => {
+    const source = sentences.find(sentence => pattern.test(sentence) && accept(sentence));
     return source ? { value: value(source), source } : null;
   };
   return {
     furnished: pick(/обзаведен[ао]?|мебелиран[ао]?|необзаведен[ао]?|без мебели/i, sentence => !/необзаведен[ао]?|без мебели/i.test(sentence)),
     pets: pick(/домашни любимци|животни/i, sentence => !/(?:не\s+(?:се\s+)?(?:допускат|разрешават)|не допуска|забранени|без)\s+(?:домашни любимци|животни)/i.test(sentence)),
-    deposit: pick(/депозит|гаранционна сума/i, sentence => sentence.replace(/[.!?]+$/, '').replace(/^.*?(?:депозит[а-яА-Я]*|гаранционна сума)\s*(?:е|:|от|в размер на)?\s*/i, '').trim() || sentence.replace(/[.!?]+$/, '')),
-    commission: pick(/комисион|комисиона/i, sentence => /без\s+комисион[а-яА-Я]*/i.test(sentence) ? false : sentence.replace(/[.!?]+$/, '').replace(/^.*?комисион[а-яА-Я]*\s*(?:е|:|от|в размер на)?\s*/i, '').trim() || sentence.replace(/[.!?]+$/, '')),
-    utilities: pick(/ток|електроенерг|вода|отоплен|комуналн/i),
-    newBuildStage: pick(/акт\s*(?:14|15|16)|в процес на строителство|строи се|в строеж/i, sentence => sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction'),
-    auction: pick(/търг|наддаван|аукцион/i, sentence => !/не се предлага.*търг/i.test(sentence)),
+    deposit: pick(/депозит|гаранционна сума/i, sentence => sentence.replace(/[.!?]+$/, '').replace(/^.*?(?:депозит[а-яА-Я]*|гаранционна сума)\s*(?:е|:|от|в размер на)?\s*/i, '').trim(), sentence => /(?:депозит|гаранционна сума).*(?:\d|наем|месец|лв|евро|€|%)/i.test(sentence) && !/уточнява|по договаряне|допълнително/i.test(sentence)),
+     commission: pick(/комисион/i, sentence => /без\s+комисион/i.test(sentence) ? false : sentence.replace(/[.!?]+$/, '').replace(/^.*?комисион[а-яА-Я]*\s*(?:е|:|от|в размер на)?\s*/i, '').trim(), sentence => !/(?:предлага|съдействие|услуга|агенцията|работим)/i.test(sentence) && (/без\s+комисион/i.test(sentence) || /комисион\w*.*(?:\d|без|няма|не се|не дължи|%|€|евро|лв)/i.test(sentence))),
+    utilities: pick(/(?:ток|електроенерг|вода|отоплен|комуналн)/i, undefined, sentence => /(?:има|снабден|включен|отделно|заплащ|такса|централн|налич)/i.test(sentence)),
+    newBuildStage: pick(/акт\s*(?:14|15|16)|в процес на строителство|строи се|в строеж/i, sentence => sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction', sentence => !/пред\s+акт\s*16|схем[аи].*плащ/i.test(sentence)),
+    auction: pick(/(?:^|[^а-я])(?:търг(?:а|ове|ов)?|наддаван[а-я]*|аукцион[а-я]*)(?:$|[^а-я])|публична продан/i, () => true, sentence => !/(?:не\s+(?:е\s+)?|няма\s+|без\s+|не\s+(?:се\s+)?(?:продава|предлага|извършва).*?)(?:публична\s+продан|търг|аукцион|наддаван)/i.test(sentence) && !/(?:не\s+(?:е\s+)?свързан[а-я]*\s+с|няма\s+отношение\s+към|не\s+се\s+отнася\s+до)/i.test(sentence)),
     vat: vatNote ? { value: vatNote, source: vatNote } : pick(/ддс|vat/i),
+     firstMonthRent: pick(/(?:първ(?:и|ия|ият) месец|първия месец).*(?:наем|€|евро|лв)|(?:наем|€|евро|лв).*(?:първ(?:и|ия|ият) месец)/i, sentence => sentence),
   };
 }
 

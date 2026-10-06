@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -370,6 +370,9 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
     await withClient(server, async client => {
       const first = await client.callTool({ name: 'get_listing', arguments: { url } });
       assert.equal(first.structuredContent.status, undefined);
+      assert.equal(first.structuredContent.listing.seller.name, 'Картична Агенция');
+      assert.equal(first.structuredContent.listing.seller.authority, 'detail');
+      assert.equal(first.structuredContent.listing.seller.conflict, false);
       assert.equal(first.structuredContent.evidenceReconciliation.authority, 'detail');
       assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'priceLowered'));
       assert.ok(first.structuredContent.evidenceReconciliation.discrepancies.some(item => item.field === 'seller'));
@@ -384,6 +387,43 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+for (const scenario of [
+  { label: 'agency card and owner description', kind: 'agency', cardName: 'Агенция Измислен Пример', sellerType: 'Агенция', description: 'Измисленият имот се продава директно от собственик.' },
+  { label: 'private card and agency description', kind: 'private', cardName: 'Частно лице', sellerType: 'Частно лице', description: 'Измисленият имот се продава чрез агенция.' },
+]) {
+  test(`get_listing flags seller conflict for ${scenario.label} on fresh, cached and refreshed reads`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'imoti-seller-conflict-'));
+    const storage = openStorage(join(directory, 'test.db'));
+    const id = '1c100000000000091';
+    const url = `https://www.imot.bg/obiava-${id}-synthetic`;
+    const searchFixture = join(directory, 'search.html');
+    const detailFixture = join(directory, 'detail.html');
+    try {
+      await writeFile(searchFixture, `<div class="item" id="ida${id}"><a class="title" href="${url}">Продава 2-СТАЕН<location>град София, Изток</location></a><div class="seller"><div class="sInfo"><div class="name">${scenario.cardName}</div></div></div></div>`);
+      await writeFile(detailFixture, `<div class="advHeader"><div class="title">Продава 2-СТАЕН</div></div><div class="adPrice"><div class="price"><div class="cena">100 000 €</div></div></div><div class="dealer2023"><div class="sellerType">${scenario.sellerType}</div><div class="name">${scenario.cardName}</div></div><div class="moreInfo"><div class="text">${scenario.description}</div></div>`);
+      const adapter = new FixtureAdapter([
+        [/obiavi\/prodazhbi/, searchFixture],
+        [/obiava-/, detailFixture],
+      ]);
+      await withClient(createServer({ adapter, storage }), async client => {
+        const search = await client.callTool({ name: 'search_listings', arguments: { criteria: { maxPages: 1 }, limit: 10 } });
+        assert.equal(search.isError, undefined, search.content?.[0]?.text);
+        assert.deepEqual(search.structuredContent.listings[0].seller, { kind: scenario.kind, name: scenario.cardName });
+        const expectedSeller = { kind: scenario.kind, name: scenario.kind === 'agency' ? scenario.cardName : null, authority: 'detail', conflict: true };
+        for (const [arguments_, cached] of [[{ url }, false], [{ id }, true], [{ id, refresh: true }, false]]) {
+          const result = await client.callTool({ name: 'get_listing', arguments: arguments_ });
+          assert.equal(result.isError, undefined, result.content?.[0]?.text);
+          assert.equal(result.structuredContent.cached, cached);
+          assert.equal(result.structuredContent.listing.description, scenario.description);
+          assert.deepEqual(result.structuredContent.listing.seller, expectedSeller);
+          assert.equal(result.structuredContent.evidenceReconciliation.authority, 'detail');
+        }
+        assert.equal(adapter.requests.filter(request => request.includes('/obiava-')).length, 2, 'cached reads reuse detail evidence; refresh fetches it again');
+      });
+    } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}
 
 test('get_listing_photos returns ordered bounded metadata and does not persist image bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photos-'));
@@ -607,6 +647,51 @@ test('comparison labels rent monthly, preserves deal and VAT, and warns for part
       assert.match(sale.uncertainty.join(' '), /partial|part of the property/i);
       assert.equal(rent.dealType, 'rent');
       assert.equal(rent.pricePeriod, 'per month');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('comparison excludes auction amounts from asking-price pooling and puts property context beside €/m²', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-auction-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'ordinary-a', dealType: 'sale', price: { amount: 200000, currency: 'EUR' }, areaM2: 100, floor: -1, construction: 'Тухла', constructionPeriod: '2020 г.', vatNote: 'Без ДДС' });
+  storage.upsertListing({ id: 'auction-b', dealType: 'sale', price: { amount: 100000, currency: 'EUR' }, areaM2: 80, facts: { auction: { value: true, source: 'На търг.' } } });
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['ordinary-a', 'auction-b'] } });
+      const [ordinary, auction] = result.structuredContent.listings;
+      assert.equal(auction.pricePeriod, 'auction/public-sale price');
+      assert.equal(result.structuredContent.askingPricePositioning.sampleSize, 1);
+      assert.equal(ordinary.comparisonContext.basement, true);
+      assert.equal(ordinary.comparisonContext.construction, 'Тухла');
+      assert.equal(ordinary.comparisonContext.vat, 'Без ДДС');
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('comparison flags top floor beside €/m² only when the total floor count is known and matches', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-compare-top-floor-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  try {
+    for (const listing of [
+      { id: 'top-floor', floor: 6, floorsTotal: 6 },
+      { id: 'middle-floor', floor: 3, floorsTotal: 6 },
+      { id: 'unknown-total', floor: 6 },
+    ]) {
+      storage.upsertListing({ ...listing, dealType: 'sale', price: { amount: 180000, currency: 'EUR' }, areaM2: 90 });
+    }
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['top-floor', 'middle-floor', 'unknown-total'] } });
+      assert.equal(result.isError, undefined, result.content?.[0]?.text);
+      const [top, middle, unknown] = result.structuredContent.listings;
+      assert.deepEqual(top.pricePerSquareMeter, { amount: 2000, currency: 'EUR' });
+      assert.equal(top.comparisonContext.topFloor, true);
+      assert.equal(top.comparisonContext.basement, false);
+      assert.equal(top.comparisonContext.floor, 6);
+      assert.equal(top.comparisonContext.floorsTotal, 6);
+      assert.equal(middle.comparisonContext.topFloor, false);
+      assert.equal(unknown.comparisonContext.topFloor, false);
+      assert.equal(unknown.comparisonContext.floorsTotal, null);
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });

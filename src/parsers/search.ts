@@ -16,7 +16,7 @@ export type ListingSummary = {
   floorsTotal: number | null;
   heating: string | null;
   construction: string | null;
-  location: { city: string | null; district: string | null; raw: string | null };
+  location: { city: string | null; district: string | null; street: string | null; precision: 'street' | 'neighbourhood' | 'unknown'; raw: string | null };
   seller: { kind: 'agency' | 'private' | 'unknown'; name: string | null };
   photoCount: number | null;
   promotedTier: 'BEST' | 'TOP' | 'VIP' | null;
@@ -44,6 +44,16 @@ function absoluteHttps(href: string | null, base: string): string | null {
   } catch {
     return null;
   }
+}
+
+function streetFromUrl(value: string | null): string | null {
+  const slug = value?.match(/obiava-[^-]+-(.*)$/i)?.[1];
+  if (!slug) return null;
+  const match = slug.match(/(?:^|-)(ulitsa|ul|boulevard|bul)-(.*?)(?=-grad-|-$|$)/i);
+  if (!match) return null;
+  const letters: Record<string, string> = { zh: 'ж', ch: 'ч', sh: 'ш', sht: 'щ', ts: 'ц', yu: 'ю', ya: 'я', ia: 'я', a: 'а', b: 'б', v: 'в', g: 'г', d: 'д', e: 'е', z: 'з', i: 'и', y: 'й', k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', r: 'р', s: 'с', t: 'т', u: 'у', f: 'ф', h: 'х', c: 'к'};
+  const name = match[2].split('-').map(word => word.replace(/sht|zh|ch|sh|ts|yu|ya|ia|[a-z]/gi, token => letters[token.toLowerCase()] ?? token).replace(/^./, first => first.toLocaleUpperCase('bg'))).join(' ');
+  return name ? `${/^(?:boulevard|bul)$/i.test(match[1]) ? 'бул.' : 'ул.'} ${name}` : null;
 }
 
 function parseItem(item: HTMLElement, base: string): ListingSummary {
@@ -74,6 +84,7 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
   const photoCountMatch = photos?.match(/\d+/);
   const image = item.querySelector('img.pic');
   const pageUrl = absoluteHttps(titleNode?.getAttribute('href') ?? null, base);
+  const street = info.match(/(?:ул\.|бул\.|улица|булевард)\s*[^,]+/i)?.[0]?.trim() ?? streetFromUrl(pageUrl);
   const id = item.getAttribute('id')?.replace(/^ida/, '') || pageUrl?.match(/obiava-([^-/]+)/)?.[1] || null;
 
   return {
@@ -84,14 +95,14 @@ function parseItem(item: HTMLElement, base: string): ListingSummary {
       label: typeMatch.label,
       rooms: Number(typeMatch.label.match(/\d+/)?.[0]) || null,
     } : null,
-    residential: typeMatch ? ['ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'atelie-tavan', 'etazh-ot-kashta', 'kashta', 'vila', 'staya'].includes(typeMatch.type.slug) : null,
+    residential: typeMatch ? ['ednostaen', 'dvustaen', 'tristaen', 'chetiristaen', 'mnogostaen', 'mezonet', 'etazh-ot-kashta', 'kashta', 'vila', 'staya'].includes(typeMatch.type.slug) : null,
     price: Number.isFinite(amount) && priceCurrency ? { amount, currency: priceCurrency } : null,
     priceLowered: item.querySelector('.price.DOWN') !== null,
     areaM2: areaMatch ? Number(areaMatch[1].replace(/\s/g, '')) : null,
     floor: floorMatch ? (floorNumber ? Number(floorNumber) : 0) : null,
     floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
     heating: heat, construction,
-    location: { city: locationParts[0] || null, district: locationParts[1] || null, raw: rawLocation },
+    location: { city: locationParts[0] || null, district: locationParts[1] || null, street, precision: street ? 'street' : locationParts[1] ? 'neighbourhood' : 'unknown', raw: rawLocation },
     seller: { kind: privateSeller ? 'private' : sellerName ? 'agency' : 'unknown', name: sellerName },
     photoCount: photoCountMatch ? Number(photoCountMatch[0]) : null,
     promotedTier: promoTier,
@@ -108,7 +119,7 @@ export function parseSearchResults(input: string | Uint8Array, pageUrl = 'https:
       return {
         id: null, url: null, title: null, dealType: 'unknown', propertyType: null, residential: null, price: null, priceLowered: false,
         areaM2: null, floor: null, floorsTotal: null, heating: null, construction: null,
-        location: { city: null, district: null, raw: null }, seller: { kind: 'unknown', name: null },
+        location: { city: null, district: null, street: null, precision: 'unknown', raw: null }, seller: { kind: 'unknown', name: null },
         photoCount: null, promotedTier: null, thumbnailUrl: null,
       };
     }
