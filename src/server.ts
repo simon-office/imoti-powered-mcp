@@ -10,7 +10,7 @@ import { configuredSearchLimit, DEFAULT_SEARCH_MAX_PAGES, DEFAULT_SEARCH_MAX_RES
 import { buildSearchUrls, verifyFilters } from './search/url-builder.js';
 import { parseSearchResults } from './parsers/search.js';
 import { parseListing } from './parsers/listing.js';
-import { districts, districtSuggestions, resolveDistrict, roomCountToPropertyType } from './search/slugs.js';
+import { districts, districtSuggestions, propertyTypeCatalog, resolveDistrict, resolvePropertyType, roomCountToPropertyType } from './search/slugs.js';
 import type { SofiaDataAdapter } from './adapter/sofia-data.js';
 import { resolveListingLocation, resolveMunicipalLocation, type MunicipalLocationDatasets } from './area/location.js';
 import type { NormalizedStop, NormalizedSchedule, NormalizedMunicipalFeature, NormalizedWalkingRoute } from './area/types.js';
@@ -414,7 +414,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       query: z.object({ urls: z.array(z.string()), criteria: z.record(z.string(), z.unknown()) }),
       verification: z.object({ ok: z.boolean(), mismatches: z.array(z.record(z.string(), z.unknown())) }),
       listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()),
-      pagesFetched: z.number(), pages: z.array(z.object({ pageUrl: z.string(), pageNumber: z.number(), totalCount: z.number().nullable(), nextPageUrl: z.string().nullable() })), coverage: z.object({ districts: z.array(z.string()), propertyTypes: z.array(z.string()) }), excludedPromoted: z.array(z.object({ listing: z.record(z.string(), z.unknown()), pageUrl: z.string() })),
+      pagesFetched: z.number(), pages: z.array(z.object({ pageUrl: z.string(), pageNumber: z.number(), totalCount: z.number().nullable(), nextPageUrl: z.string().nullable() })), coverage: z.object({ districts: z.array(z.string()), propertyTypes: z.array(z.string()) }), excludedPromoted: z.array(z.object({ listing: z.record(z.string(), z.unknown()), pageUrl: z.string() })), omittedByTypeFilter: z.number(),
     });
     server.registerTool('get_search_districts', {
       description: 'List supported Sofia search districts with Bulgarian and Latin names and URL slugs.',
@@ -439,6 +439,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const urls: string[] = [];
         const listings = new Map<string, Listing>();
         const excludedPromoted: Array<{ listing: Listing; pageUrl: string }> = [];
+        let omittedByTypeFilter = 0;
         const coveredDistricts = new Set<string>();
         const coveredTypes = new Set<string>();
         const sourceUrls = new Map<string, string>();
@@ -476,14 +477,15 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           for (const item of parsed.listings) {
             if (!item.id || !item.url) continue;
             const itemCheck = verifyFilters(criteria, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] });
-            if (item.promotedTier && !itemCheck.ok) { excludedPromoted.push({ listing: { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' }, pageUrl: url }); continue; }
+            const nonTypeCheck = verifyFilters({ ...criteria, propertyTypes: [], rooms: undefined }, { listings: [{ dealType: item.dealType, location: { city: item.location.city, district: item.location.district }, propertyType: item.propertyType, price: item.price }] });
+            if (item.promotedTier && !nonTypeCheck.ok) { excludedPromoted.push({ listing: { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' }, pageUrl: url }); continue; }
             if (criteria.districts.length && (!item.location.district || !criteria.districts.some(name => resolveDistrict(name).slug === resolveDistrict(item.location.district!).slug))) continue;
             if (criteria.priceMin !== undefined && (item.price?.amount === undefined || item.price.amount < criteria.priceMin)) continue;
             if (criteria.priceMax !== undefined && (item.price?.amount === undefined || item.price.amount > criteria.priceMax)) continue;
             if (criteria.areaMin !== undefined && (item.areaM2 === null || item.areaM2 < criteria.areaMin)) continue;
             if (criteria.areaMax !== undefined && (item.areaM2 === null || item.areaM2 > criteria.areaMax)) continue;
-            if (criteria.propertyTypes.length && !criteria.propertyTypes.some(type => matchesPropertyType(type, item.propertyType?.label))) continue;
             if (criteria.rooms && (item.propertyType?.rooms === null || item.propertyType?.rooms === undefined || (criteria.rooms.min !== undefined && item.propertyType.rooms < criteria.rooms.min) || (criteria.rooms.max !== undefined && item.propertyType.rooms > criteria.rooms.max))) continue;
+            if (criteria.propertyTypes.length && !criteria.propertyTypes.some(type => catalogTypeMatches(type, item.propertyType?.slug, item.propertyType?.label))) { omittedByTypeFilter++; continue; }
             if (!listings.has(item.id)) {
               listings.set(item.id, { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' });
               sourceUrls.set(item.id, url);
@@ -507,7 +509,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const exactRoomType = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? roomCountToPropertyType(criteria.rooms.min) : undefined;
         const expectedTypes = criteria.propertyTypes.length ? criteria.propertyTypes : exactRoomType ? [exactRoomType] : [];
         if (criteria.districts.some(name => !coveredDistricts.has(resolveDistrict(name).slug)) || expectedTypes.some(type => !coveredTypes.has(type))) mismatches.push({ filter: 'coverage', expected: { districts: criteria.districts.map(name => resolveDistrict(name).slug), propertyTypes: expectedTypes }, observed: coverage });
-        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, pagesFetched, pages, coverage, excludedPromoted };
+        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, pagesFetched, pages, coverage, excludedPromoted, omittedByTypeFilter };
         return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}; filters ${output.verification.ok ? 'verified' : 'need review'}.${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });
@@ -627,12 +629,15 @@ function parseCanonicalListingUrl(value: string): { id: string; url: string } | 
   } catch { return undefined; }
 }
 
-function matchesPropertyType(requested: string, observed?: string | null): boolean {
-  if (!observed) return false;
-  const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^a-z0-9а-я]/gi, '');
-  const labels: Record<string, string> = { ednostaen: '1стаен', dvustaen: '2стаен', tristaen: '3стаен', chetiristaen: '4стаен', mnogostaen: '5стаен' };
-  const actual = normalize(observed);
-  return actual.includes(normalize(requested)) || (labels[requested] !== undefined && actual.includes(normalize(labels[requested])));
+function catalogTypeMatches(requested: string, slug?: string | null, label?: string | null): boolean {
+  try {
+    const expected = resolvePropertyType(requested).slug;
+    return [slug, label].some(value => {
+      if (!value) return false;
+      try { return resolvePropertyType(value).slug === expected; }
+      catch { return propertyTypeCatalog.find(type => type.slug === expected)?.cardLabel.toLocaleLowerCase() === value.toLocaleLowerCase(); }
+    });
+  } catch { return false; }
 }
 
 function toolError(error: unknown) {
