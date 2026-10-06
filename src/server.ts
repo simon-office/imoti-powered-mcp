@@ -23,7 +23,10 @@ export interface ServerDependencies {
   adapter?: SiteAdapter;
   storage?: Storage;
   photoAssessment?: PhotoAssessmentOptions;
+  /** Maximum time spent retrieving one photo page. Defaults to 10 seconds. */
+  photoRetrievalTimeoutMs?: number;
   sofiaData?: SofiaDataAdapter;
+  cleanupOnDisconnect?: boolean;
 }
 
 export function createServer(deps: ServerDependencies = {}): McpServer {
@@ -32,10 +35,26 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
   const defaultSearchResults = configuredSearchLimit('IMOTI_SEARCH_MAX_RESULTS', DEFAULT_SEARCH_MAX_RESULTS);
   const searchToolCriteriaSchema = searchCriteriaSchema.extend({ maxPages: z.number().int().min(1).max(MAX_SEARCH_MAX_PAGES).default(defaultSearchPages) });
   const server = new McpServer({ name: 'imoti', version: VERSION });
+  let cleanupPromise: Promise<void> | undefined;
+  let storageClosed = false;
+  if (deps.cleanupOnDisconnect) {
+    server.server.onclose = () => {
+      cleanupPromise ??= (async () => {
+        try { await deps.adapter?.close(); }
+        finally {
+          if (deps.storage && !storageClosed) {
+            storageClosed = true;
+            deps.storage.close();
+          }
+        }
+      })();
+      return cleanupPromise;
+    };
+  }
   const outputSchema = {
     name: z.string(),
     version: z.string(),
-    stage: z.literal('3'),
+    stage: z.literal('5'),
     dataDir: z.string(),
   };
 
@@ -47,7 +66,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       outputSchema,
     },
     async () => {
-      const info = { name: 'imoti', version: VERSION, stage: '3' as const, dataDir };
+      const info = { name: 'imoti', version: VERSION, stage: '5' as const, dataDir };
       return {
         structuredContent: info,
         content: [{ type: 'text' as const, text: `imoti ${VERSION} (stage ${info.stage}); data directory: ${dataDir}` }],
@@ -117,6 +136,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       inputSchema: { listingIds: z.array(z.string().min(1)).min(2).max(10).refine(ids => new Set(ids).size === ids.length, 'listingIds must be unique') },
       outputSchema: z.object({
         listings: z.array(z.object({ id: z.string(), dealType: z.enum(['sale', 'rent', 'unknown']), pricePeriod: z.string().nullable(), vatTerms: z.string().nullable(), areaScope: z.string().nullable(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
+        duplicateEvidence: z.array(z.object({ listingIds: z.array(z.string()).length(2), kind: z.literal('possible_repost'), confidence: z.literal('suspected'), propertyMatch: z.literal('suspected'), evidence: z.string() })),
         askingPricePositioning: z.unknown(),
       }),
     }, async ({ listingIds }) => {
@@ -153,6 +173,14 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         });
         const knownDeals = new Set(listings.map(item => item.dealType));
         const mixedDeals = knownDeals.has('sale') && knownDeals.has('rent');
+        const byProperty = new Map<string, typeof listings>();
+        for (const item of listings) {
+          const key = storage.getListing(item.id)?.propertyKey;
+          if (typeof key === 'string' && key.trim()) byProperty.set(key, [...(byProperty.get(key) ?? []), item]);
+        }
+        const duplicateEvidence = [...byProperty.entries()].flatMap(([key, matches]) => matches.length > 1 && new Set(matches.map(item => item.dealType)).size > 1
+          ? [{ listingIds: matches.map(item => item.id).slice(0, 2) as [string, string], kind: 'possible_repost' as const, confidence: 'suspected' as const, propertyMatch: 'suspected' as const, evidence: `Listings share fabricated/property key ${key} and differ by category; this is a suspected physical-property match, not confirmation.` }]
+          : []);
         const amounts = listings.flatMap(item => !mixedDeals && item.price ? [item.price as {amount:number;currency:string}] : []);
         const currency = amounts.length && amounts.every(item => item.currency === amounts[0].currency) ? amounts[0].currency : null;
         const dates = listings.flatMap(item => item.price && item.observedAt ? [item.observedAt] : []).sort();
@@ -162,7 +190,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const middle = Math.floor(sorted.length / 2);
           positioning = { basis: 'observed asking prices only; not completed sales or a market-wide valuation; period covers supplied observations with available timestamps', sampleSize: amounts.length, currency, period: dates.length ? { from: dates[0], to: dates.at(-1) } : null, minimum: sorted[0], median: sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2, maximum: sorted.at(-1) };
         }
-        return { structuredContent: { listings, askingPricePositioning: positioning }, content: [{ type: 'text' as const, text: `Compared ${listings.length} stored listings. Asking-price positioning covers ${amounts.length} valid supplied price observation(s); aggregate statistics are available only for one currency. The period covers supplied observations with available timestamps; these are not completed sales or market-wide valuation.` }] };
+        return { structuredContent: { listings, duplicateEvidence, askingPricePositioning: positioning }, content: [{ type: 'text' as const, text: `Compared ${listings.length} stored listings. Asking-price positioning covers ${amounts.length} valid supplied price observation(s); aggregate statistics are available only for one currency. The period covers supplied observations with available timestamps; these are not completed sales or market-wide valuation.` }] };
       } catch (error) { return toolError(error); }
     });
   }
@@ -257,16 +285,40 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const listing = storage.getListing(listingId);
         if (!listing) return { isError: true, content: [{ type: 'text' as const, text: `Listing ${listingId} was not found in local storage.` }] };
         const references = Array.isArray(listing.photos) ? listing.photos.filter((reference): reference is string => typeof reference === 'string') : [];
-        const retrieved = await adapter.getListingPhotos(listingId, references);
-        const page = retrieved.slice(offset, offset + 3);
+        const pageReferences = references.slice(offset, offset + 3);
+        const controller = new AbortController();
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const timeoutMs = deps.photoRetrievalTimeoutMs ?? 10_000;
+        const retrievedPage = await Promise.race([
+          adapter.getListingPhotos(listingId, pageReferences, { signal: controller.signal }),
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+              const error = new Error(`Photo retrieval exceeded its ${timeoutMs}ms deadline.`);
+              controller.abort(error);
+              reject(error);
+            }, timeoutMs);
+          }),
+        ]).finally(() => { if (timeout) clearTimeout(timeout); });
+        // Keep retained image payloads (including data later encoded for host assessment)
+        // bounded independently of the three-reference page-size limit.
+        const photoByteBudget = 32 * 1024;
+        let acceptedPhotoBytes = 0;
+        const page = retrievedPage.map(photo => {
+          const size = photo.bytes?.byteLength ?? 0;
+          if (size > photoByteBudget - acceptedPhotoBytes) {
+            return { listingId: photo.listingId, reference: photo.reference, mediaType: photo.mediaType, unavailableReason: `Photo omitted because the per-call ${photoByteBudget}-byte budget would be exceeded.` };
+          }
+          acceptedPhotoBytes += size;
+          return photo;
+        });
         const photos = page.map(({ listingId: photoListingId, reference, mediaType, unavailableReason }) => ({ listingId: photoListingId, reference, mediaType, ...(unavailableReason ? { unavailableReason } : {}) }));
         const uncertainty = photos.flatMap(photo => photo.unavailableReason ? [`Photo ${photo.reference}: ${photo.unavailableReason}`] : []);
         const result = await assessListingPhotos(page, deps.photoAssessment ?? configuredPhotoAssessmentOptions(process.env));
         const assessment = { ...result.deterministic, findings: result.findings, provider: result.provider };
-        const nextOffset = offset + page.length < retrieved.length ? offset + page.length : null;
+        const nextOffset = offset + pageReferences.length < references.length ? offset + pageReferences.length : null;
         const attachedThumbnails = result.uncertainty.filter(text => text.includes('attached to host assessment as a 280px low-resolution thumbnail'));
         const hostMessage = result.provider === 'host' ? (result.contentBlocks.length ? `Assess the attached image content${attachedThumbnails.length ? `; 280px low-resolution photos: ${attachedThumbnails.map(text => text.slice(6, text.indexOf(' attached to host assessment'))).join(', ')}` : ''}; coverage may be incomplete.` : 'No image content was attached for host assessment; photo coverage is incomplete.') : `Assessment provider: ${result.provider}.`;
-        return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty: [...uncertainty, ...result.uncertainty] }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${retrieved.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`} ${hostMessage}` }, ...result.contentBlocks] };
+        return { structuredContent: { listingId, photos, assessment, nextOffset, uncertainty: [...uncertainty, ...result.uncertainty] }, content: [{ type: 'text' as const, text: `Retrieved photos ${offset + 1}–${offset + page.length} of ${references.length} for listing ${listingId}; ${uncertainty.length} unavailable.${nextOffset === null ? '' : ` Continue with offset ${nextOffset}.`} ${hostMessage}` }, ...result.contentBlocks] };
       } catch (error) { return toolError(error); }
     });
     server.registerTool('refresh_watched', {

@@ -15,7 +15,7 @@ export interface ListingPhoto {
 
 export interface SiteAdapter {
   fetchPage(url: string): Promise<SitePage>;
-  getListingPhotos(listingId: string, references: string[]): Promise<ListingPhoto[]>;
+  getListingPhotos(listingId: string, references: string[], options?: { signal?: AbortSignal }): Promise<ListingPhoto[]>;
   close(): Promise<void>;
 }
 

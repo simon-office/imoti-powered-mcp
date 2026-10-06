@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
-import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, PlaywrightAdapter } from '../dist/adapter/playwright.js';
+import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, readPhotoBodyWithLimit, PlaywrightAdapter } from '../dist/adapter/playwright.js';
 
 test('fixture adapter decodes windows-1251 bytes and records requested URLs', async () => {
   const adapter = new FixtureAdapter({ 'https://fake.test/search': new URL('./fixtures/search-windows-1251.html', import.meta.url) });
@@ -67,4 +67,26 @@ test('photo retrieval limits concurrent requests to three', async () => {
   });
   assert.equal(photos.length, 8);
   assert.equal(maximum, 3);
+});
+
+test('photo body reader limits oversized stream delivery to the remaining byte cap', async () => {
+  let bytesDelivered = 0;
+  let cancelled = false;
+  const stream = new ReadableStream({
+    type: 'bytes',
+    pull(controller) {
+      const view = controller.byobRequest?.view;
+      if (!view) throw new Error('expected a bounded BYOB read');
+      const delivered = Math.min(view.byteLength, 16 - bytesDelivered);
+      view.set(new Uint8Array(delivered));
+      bytesDelivered += delivered;
+      controller.byobRequest.respond(delivered);
+    },
+    cancel() { cancelled = true; },
+  });
+  const result = await readPhotoBodyWithLimit(stream, 10);
+  assert.equal(result.bytes.byteLength, 10);
+  assert.equal(result.truncated, true);
+  assert.equal(bytesDelivered, 10);
+  assert.equal(cancelled, true);
 });

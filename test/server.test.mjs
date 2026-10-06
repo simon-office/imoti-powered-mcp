@@ -46,6 +46,49 @@ test('search MCP schema uses validated environment collection defaults', async (
   }
 });
 
+test('server_info reports delivery stage 5', async () => {
+  await withClient(createServer(), async client => {
+    const result = await client.callTool({ name: 'server_info', arguments: {} });
+    assert.equal(result.structuredContent.stage, '5');
+  });
+});
+
+test('compare_listings flags cross-category shared property keys as suspected reposts without merging listing ids', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-suspected-reposts-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'sale-fixture-a', propertyKey: 'fabricated-property-1', dealType: 'sale', title: 'Imaginary flat' });
+  storage.upsertListing({ id: 'rent-fixture-b', propertyKey: 'fabricated-property-1', dealType: 'rent', title: 'Imaginary flat' });
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['sale-fixture-a', 'rent-fixture-b'] } });
+      assert.deepEqual(result.structuredContent.listings.map(item => item.id), ['sale-fixture-a', 'rent-fixture-b']);
+      assert.equal(result.structuredContent.duplicateEvidence.length, 1);
+      assert.equal(result.structuredContent.duplicateEvidence[0].confidence, 'suspected');
+      assert.equal(result.structuredContent.duplicateEvidence[0].kind, 'possible_repost');
+      assert.equal(result.structuredContent.duplicateEvidence[0].propertyMatch, 'suspected');
+    });
+  } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
+});
+
+test('MCP disconnect awaits local adapter and storage cleanup', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-disconnect-cleanup-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter({});
+  let closeCount = 0;
+  adapter.close = async () => { await new Promise(resolve => setTimeout(resolve, 5)); closeCount++; };
+  const server = createServer({ storage, adapter, cleanupOnDisconnect: true });
+  const client = new Client({ name: 'disconnect-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  await client.close();
+  await serverTransport.close();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  try {
+    assert.equal(closeCount, 1);
+    assert.throws(() => storage.getListing('after-disconnect'), /closed|database/i);
+  } finally { try { await server.close(); } catch {} try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
+});
+
 test('search MCP schema documents deal and EUR monthly rent price inputs', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-search-descriptions-'));
   const storage = openStorage(join(directory, 'test.db'));
@@ -232,6 +275,89 @@ test('photo responses assess only the bounded page, expose assessment host block
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('photo pagination retrieves only a bounded subset per call and walks the complete synthetic inventory', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-bounds-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const refs = Array.from({ length: 11 }, (_, i) => `https://images.fake.test/synthetic-${i}.jpg`);
+  storage.upsertListing({ id: 'synthetic-inventory', photos: refs });
+  const adapter = new FixtureAdapter({}, { photos: Object.fromEntries(refs.map(ref => [ref, new Uint8Array(128)])) });
+  const requested = [];
+  const original = adapter.getListingPhotos.bind(adapter);
+  adapter.getListingPhotos = async (id, references) => { requested.push(...references); return original(id, references); };
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      let offset = 0;
+      const observed = [];
+      do {
+        const result = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'synthetic-inventory', offset } });
+        observed.push(...result.structuredContent.photos.map(photo => photo.reference));
+        assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 64 * 1024);
+        offset = result.structuredContent.nextOffset;
+      } while (offset !== null);
+      assert.deepEqual(observed, refs);
+      assert.equal(requested.length, refs.length);
+      assert.equal(new Set(requested).size, refs.length);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('photo retrieval enforces a per-call byte budget and advances across oversized images', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-byte-budget-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const refs = ['https://images.fake.test/small.jpg', 'https://images.fake.test/medium.jpg', 'https://images.fake.test/large.jpg', 'https://images.fake.test/next.jpg'];
+  storage.upsertListing({ id: 'byte-budget-inventory', photos: refs });
+  const adapter = new FixtureAdapter({}, { photos: {
+    [refs[0]]: new Uint8Array(20_000),
+    [refs[1]]: new Uint8Array(20_000),
+    [refs[2]]: new Uint8Array(80_000),
+    [refs[3]]: new Uint8Array(20_000),
+  } });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const first = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'byte-budget-inventory' } });
+      assert.equal(first.structuredContent.photos[0].unavailableReason, undefined);
+      assert.match(first.structuredContent.photos[2].unavailableReason, /byte budget/i);
+      assert.equal(first.structuredContent.photos[2].bytes, undefined);
+      assert.equal(first.structuredContent.nextOffset, 3);
+      assert.ok(Buffer.byteLength(JSON.stringify(first), 'utf8') < 64 * 1024);
+      const next = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'byte-budget-inventory', offset: 3 } });
+      assert.equal(next.structuredContent.photos[0].unavailableReason, undefined);
+      assert.equal(next.structuredContent.nextOffset, null);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('photo retrieval deadline aborts a stalled adapter and allows pagination to continue', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-deadline-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const refs = Array.from({ length: 4 }, (_, i) => `https://images.fake.test/deadline-${i}.jpg`);
+  storage.upsertListing({ id: 'deadline-inventory', photos: refs });
+  const adapter = new FixtureAdapter({});
+  const requestedOffsets = [];
+  let aborted = false;
+  adapter.getListingPhotos = async (_id, references, { signal } = {}) => {
+    requestedOffsets.push(references[0]);
+    if (references[0] === refs[0]) return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => { aborted = true; reject(signal.reason); }, { once: true });
+    });
+    return references.map(reference => ({ listingId: 'deadline-inventory', reference, mediaType: 'image/jpeg' }));
+  };
+  try {
+    await withClient(createServer({ adapter, storage, photoRetrievalTimeoutMs: 20 }), async client => {
+      const started = Date.now();
+      const slow = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'deadline-inventory' } });
+      assert.ok(Date.now() - started < 500, 'stalled retrieval is bounded by its configured deadline');
+      assert.equal(slow.isError, true);
+      assert.match(slow.content[0].text, /deadline/i);
+      assert.equal(aborted, true);
+      const continued = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'deadline-inventory', offset: 3 } });
+      assert.deepEqual(continued.structuredContent.photos.map(photo => photo.reference), [refs[3]]);
+      assert.equal(continued.structuredContent.nextOffset, null);
+      assert.deepEqual(requestedOffsets, [refs[0], refs[3]]);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('photo assessment host blocks retain the assessed original image bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-variants-'));
   const storage = openStorage(join(directory, 'test.db'));
@@ -264,7 +390,7 @@ test('photo assessment does not claim attached images when no host block is elig
       assert.equal(result.content.filter(block => block.type === 'image').length, 0);
       assert.match(result.content[0].text, /No image content was attached/);
       assert.doesNotMatch(result.content[0].text, /Assess the attached image content/);
-      assert.ok(result.structuredContent.uncertainty.some(text => text.includes(reference) && text.includes('size exceeds 200,000 bytes')));
+      assert.ok(result.structuredContent.uncertainty.some(text => text.includes(reference) && /byte budget/i.test(text)));
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
@@ -863,7 +989,7 @@ test('server_info exposes server metadata and selected data directory over memor
     assert.deepEqual(tools.tools.map(({ name }) => name), ['server_info']);
     const result = await client.callTool({ name: 'server_info' });
     assert.deepEqual(result.structuredContent, {
-      name: 'imoti', version: VERSION, stage: '3', dataDir: '/tmp/imoti-test-data',
+      name: 'imoti', version: VERSION, stage: '5', dataDir: '/tmp/imoti-test-data',
     });
     assert.equal(result.content.length, 1);
     assert.equal(result.content[0].type, 'text');
