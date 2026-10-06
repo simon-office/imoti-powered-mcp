@@ -38,6 +38,34 @@ export async function fetchPhotosWithLimit<T>(references: string[], fetchPhoto: 
   return results;
 }
 
+export async function readPhotoBodyWithLimit(stream: ReadableStream<Uint8Array> | null, byteLimit: number): Promise<Uint8Array> {
+  if (!stream) return new Uint8Array();
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength > byteLimit - total) {
+        await reader.cancel('Photo byte limit exceeded');
+        throw new RangeError(`Photo exceeds the per-call byte limit of ${byteLimit}`);
+      }
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export function assertPageCapacity(pagesFetched: number, maxPages = DEFAULT_MAX_PAGES): void {
   if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_MAX_PAGES) throw new RangeError(`maxPages must be an integer from 1 to ${MAX_MAX_PAGES}`);
   if (pagesFetched >= maxPages) throw new Error(`Page limit of ${maxPages} reached for this run`);
@@ -87,20 +115,29 @@ export class PlaywrightAdapter implements SiteAdapter {
     }
   }
 
-  async getListingPhotos(listingId: string, references: string[]): Promise<ListingPhoto[]> {
-    const context = await this.getContext();
+  async getListingPhotos(listingId: string, references: string[], options: { signal?: AbortSignal } = {}): Promise<ListingPhoto[]> {
+    let acceptedBytes = 0;
     return fetchPhotosWithLimit(references, async reference => {
       try {
+        if (acceptedBytes >= 32 * 1024) return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: 'Photo omitted because the per-call 32768-byte budget was exhausted.' };
         if (!isAllowedPhotoReference(reference)) {
           return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: 'Photo reference is not an allowed HTTPS image host.' };
         }
-        const response = await context.request.get(reference, { maxRedirects: 0 });
-        if (!response.ok()) return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', unavailableReason: `Image request returned HTTP ${response.status()}.` };
-        return { listingId, reference, mediaType: response.headers()['content-type']?.split(';', 1)[0] ?? 'application/octet-stream', bytes: await response.body() };
+        const response = await fetch(reference, { signal: options.signal, redirect: 'manual' });
+        const mediaType = response.headers.get('content-type')?.split(';', 1)[0] ?? 'application/octet-stream';
+        if (!response.ok) return { listingId, reference, mediaType, unavailableReason: `Image request returned HTTP ${response.status}.` };
+        const contentLength = Number(response.headers.get('content-length'));
+        if (Number.isFinite(contentLength) && contentLength > 32 * 1024) {
+          await response.body?.cancel('Photo byte limit exceeded');
+          return { listingId, reference, mediaType, unavailableReason: 'Photo exceeds the per-call 32768-byte budget.' };
+        }
+        const bytes = await readPhotoBodyWithLimit(response.body, 32 * 1024 - acceptedBytes);
+        acceptedBytes += bytes.byteLength;
+        return { listingId, reference, mediaType, bytes };
       } catch (error) {
         return { listingId, reference, mediaType: 'application/octet-stream', unavailableReason: error instanceof Error ? error.message : 'Image could not be retrieved.' };
       }
-    });
+    }, 1);
   }
 
   async close(): Promise<void> {

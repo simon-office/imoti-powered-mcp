@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
-import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, PlaywrightAdapter } from '../dist/adapter/playwright.js';
+import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, readPhotoBodyWithLimit, PlaywrightAdapter } from '../dist/adapter/playwright.js';
 
 test('fixture adapter decodes windows-1251 bytes and records requested URLs', async () => {
   const adapter = new FixtureAdapter({ 'https://fake.test/search': new URL('./fixtures/search-windows-1251.html', import.meta.url) });
@@ -67,4 +67,19 @@ test('photo retrieval limits concurrent requests to three', async () => {
   });
   assert.equal(photos.length, 8);
   assert.equal(maximum, 3);
+});
+
+test('photo body reader cancels before retaining bytes beyond its cap', async () => {
+  let bytesRead = 0;
+  let cancelled = false;
+  const stream = new ReadableStream({
+    pull(controller) {
+      controller.enqueue(new Uint8Array(8));
+      bytesRead += 8;
+    },
+    cancel() { cancelled = true; },
+  });
+  await assert.rejects(readPhotoBodyWithLimit(stream, 10), /byte limit of 10/);
+  assert.equal(bytesRead, 16);
+  assert.equal(cancelled, true);
 });
