@@ -413,7 +413,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
     const searchOutput = z.object({
       query: z.object({ urls: z.array(z.string()), criteria: z.record(z.string(), z.unknown()) }),
       verification: z.object({ ok: z.boolean(), mismatches: z.array(z.record(z.string(), z.unknown())) }),
-      listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()),
+      listings: z.array(z.record(z.string(), z.unknown())), observedAt: z.string(), truncated: z.boolean(), districtCounts: z.record(z.string(), z.number()), contributingPages: z.array(z.number()),
       pagesFetched: z.number(), pages: z.array(z.object({ pageUrl: z.string(), pageNumber: z.number(), totalCount: z.number().nullable(), nextPageUrl: z.string().nullable() })), coverage: z.object({ districts: z.array(z.string()), propertyTypes: z.array(z.string()) }), excludedPromoted: z.array(z.object({ listing: z.record(z.string(), z.unknown()), pageUrl: z.string() })), omittedByTypeFilter: z.number(),
     });
     server.registerTool('get_search_districts', {
@@ -439,6 +439,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const urls: string[] = [];
         const listings = new Map<string, Listing>();
         const excludedPromoted: Array<{ listing: Listing; pageUrl: string }> = [];
+        const candidatePages = new Map<string, number>();
         let omittedByTypeFilter = 0;
         const coveredDistricts = new Set<string>();
         const coveredTypes = new Set<string>();
@@ -489,6 +490,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             if (!listings.has(item.id)) {
               listings.set(item.id, { ...item, id: item.id, location: { ...item.location, precision: item.location.district ? 'neighbourhood' : 'unknown' }, status: 'available' });
               sourceUrls.set(item.id, url);
+              candidatePages.set(item.id, parsed.pageNumber);
             }
           }
           if (listings.size >= limit) truncated = true;
@@ -502,9 +504,23 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             return catalogTypeMatches(type, propertyType?.slug, propertyType?.label);
           }))
           : districtGroups;
+        const pageSpread = (group: Listing[]) => {
+          const byPage = new Map<number, Listing[]>();
+          for (const item of group) {
+            const pageNumber = candidatePages.get(item.id) ?? 1;
+            byPage.set(pageNumber, [...(byPage.get(pageNumber) ?? []), item]);
+          }
+          const spread: Listing[] = [];
+          for (let index = 0; [...byPage.values()].some(items => index < items.length); index++) {
+            for (const items of byPage.values()) if (items[index]) spread.push(items[index]);
+          }
+          return spread;
+        };
         const interleaved: Listing[] = [];
-        for (let index = 0; selectionGroups.some(group => index < group.length); index++) for (const group of selectionGroups) if (group[index] && !interleaved.some(item => item.id === group[index].id)) interleaved.push(group[index]);
+        const spreadGroups = selectionGroups.map(pageSpread);
+        for (let index = 0; spreadGroups.some(group => index < group.length); index++) for (const group of spreadGroups) if (group[index] && !interleaved.some(item => item.id === group[index].id)) interleaved.push(group[index]);
         const results = interleaved.slice(0, limit);
+        const contributingPages = [...new Set(results.map(item => candidatePages.get(item.id) ?? 1))].sort((a, b) => a - b);
         const districtCounts = Object.fromEntries(criteria.districts.map(name => [resolveDistrict(name).slug, results.filter(item => typeof districtOf(item) === 'string' && resolveDistrict(districtOf(item) as string).slug === resolveDistrict(name).slug).length]));
         if (listings.size > limit) truncated = true;
         for (const listing of results) {
@@ -515,7 +531,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const exactRoomType = criteria.rooms?.min !== undefined && criteria.rooms.min === criteria.rooms.max ? roomCountToPropertyType(criteria.rooms.min) : undefined;
         const expectedTypes = criteria.propertyTypes.length ? criteria.propertyTypes : exactRoomType ? [exactRoomType] : [];
         if (criteria.districts.some(name => !coveredDistricts.has(resolveDistrict(name).slug)) || expectedTypes.some(type => !coveredTypes.has(type))) mismatches.push({ filter: 'coverage', expected: { districts: criteria.districts.map(name => resolveDistrict(name).slug), propertyTypes: expectedTypes }, observed: coverage });
-        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, pagesFetched, pages, coverage, excludedPromoted, omittedByTypeFilter };
+        const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, contributingPages, pagesFetched, pages, coverage, excludedPromoted, omittedByTypeFilter };
         return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}; filters ${output.verification.ok ? 'verified' : 'need review'}.${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });

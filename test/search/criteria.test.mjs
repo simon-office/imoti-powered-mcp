@@ -6,7 +6,17 @@ import { propertyTypeCatalog, resolveDistrict, roomCountToPropertyType } from '.
 import { parseSearchResults } from '../../dist/parsers/search.js';
 
 test('criteria defaults deal, city and page limit', () => {
-  assert.deepEqual(searchCriteriaSchema.parse({}), { deal: 'sale', city: 'sofia', districts: [], propertyTypes: [], maxPages: 3 });
+  assert.deepEqual(searchCriteriaSchema.parse({}), { deal: 'sale', city: 'sofia', districts: [], propertyTypes: [], startPage: 1, maxPages: 3 });
+});
+
+test('startPage is bounded to whole site pages 1 through 26', () => {
+  assert.equal(searchCriteriaSchema.parse({ startPage: 26 }).startPage, 26);
+  assert.deepEqual(buildSearchUrls(searchCriteriaSchema.parse({ startPage: 26, maxPages: 3 })).urls.map(url => new URL(url).pathname.split('/').at(-1)), ['p-26', 'p-27', 'p-28']);
+  for (const startPage of [0, 27, 1.5]) assert.throws(() => searchCriteriaSchema.parse({ startPage }));
+  const result = buildSearchUrls(searchCriteriaSchema.parse({ startPage: 25, maxPages: 3, priceMax: 100000 }));
+  assert.deepEqual(result.urls.map(url => new URL(url).pathname.split('/').at(-1)), ['p-25', 'p-26', 'p-27']);
+  assert.equal(result.urls.length, 3);
+  assert.ok(result.urls.every(url => url.includes('price_max=100000')));
 });
 
 test('criteria preserves the bounded default page limit and rejects values outside its safety bound', () => {

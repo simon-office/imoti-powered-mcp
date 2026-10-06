@@ -30,6 +30,7 @@ export const searchCriteriaSchema = z.object({
   priceMax: z.number().positive().optional().describe('Maximum asking price in EUR; for rentals, EUR per month.'),
   areaMin: z.number().positive().optional(),
   areaMax: z.number().positive().optional(),
+  startPage: z.number().int().min(1).max(26).default(1),
   maxPages: z.number().int().min(1).max(MAX_SEARCH_MAX_PAGES).default(DEFAULT_SEARCH_MAX_PAGES),
 });
 

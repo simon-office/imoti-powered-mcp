@@ -2,6 +2,16 @@
 
 ## Owner live check (stage 5: multilingual search coverage)
 
+### Targeted continuation and page-spread check
+
+On Simon's machine, issue the same broad sale/type criteria twice, first with `startPage: 1` and then with
+`startPage: 4` (keep `maxPages: 3` and `limit: 10`). Confirm the second call requests pages 4–6, never more than
+three URLs, and that `contributingPages` exactly matches the page numbers represented by returned listings. Compare
+the first-page-heavy sample with the later-page sample; do not expect fixed listing identities or counts. Repeat once
+with `propertyTypes: ["ednostaen", "dvustaen"]` and confirm both requested types remain interleaved while contributing
+pages are reported. Use only the owner's live session. In the report, record redacted aggregate page numbers, returned
+count, and type counts; omit listing IDs, URLs, titles, addresses, contacts, raw responses, screenshots, and page text.
+
 Run these nine plain-language requests in separate turns on Simon's machine with the stage 5 plugin and live site access.
 These checks are not results: record only what the tools actually return. Use the requests verbatim, including their
 language. There are five purchases and four rentals (three English, three Bulgarian, three Russian).

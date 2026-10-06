@@ -95,6 +95,13 @@ test('README reports stage 5 prepared and documents local refresh', async () => 
   assert.match(readme, /npm run refresh --/);
 });
 
+test('README and stage 5 live check document bounded page continuation and spread reporting', async () => {
+  const readme = await read('README.md');
+  const doc = await read('docs/live-check.md');
+  assert.match(readme, /criteria\.startPage[\s\S]*?1–26[\s\S]*?criteria\.maxPages[\s\S]*?3/);
+  assert.match(doc, /Targeted continuation and page-spread check[\s\S]*?startPage: 4[\s\S]*?contributingPages[\s\S]*?propertyTypes[\s\S]*?omit listing IDs, URLs/i);
+});
+
 test('stage 5 owner procedure covers the nine exact requests and expected comparisons', async () => {
   const doc = await read('docs/live-check.md');
   const requests = [
