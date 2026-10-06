@@ -114,3 +114,20 @@ test('photo retrieval tries the 800px variant then the 280px thumbnail within it
     assert.deepEqual(photos.map(photo => photo.reference), references);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('photo retrieval falls back to the thumbnail after a transport failure on the 800px variant', async () => {
+  const originalFetch = globalThis.fetch;
+  const reference = 'https://imotstatic1.focus.bg/photosimotbg/a/b/big1/transport.jpg';
+  const requested = [];
+  globalThis.fetch = async url => {
+    requested.push(String(url));
+    if (String(url).includes('/big/')) throw new TypeError('synthetic network failure');
+    return new Response(new Uint8Array(26_000), { status: 200, headers: { 'content-type': 'image/jpeg' } });
+  };
+  try {
+    const [photo] = await new PlaywrightAdapter().getListingPhotos('fake', [reference]);
+    assert.deepEqual(requested, [reference.replace('/big1/', '/big/'), reference.replace('/big1/', '/')]);
+    assert.equal(photo.bytes.byteLength, 26_000);
+    assert.equal(photo.unavailableReason, undefined);
+  } finally { globalThis.fetch = originalFetch; }
+});

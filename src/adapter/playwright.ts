@@ -135,7 +135,14 @@ export class PlaywrightAdapter implements SiteAdapter {
         let lastReason = 'Photo could not be retrieved within the byte limit.';
         for (const candidate of candidates) {
           const remaining = Math.min(MAX_PHOTO_BYTES, callBudget - acceptedBytes);
-          const response = await fetch(candidate, { signal: options.signal, redirect: 'manual' });
+          let response: Response;
+          try {
+            response = await fetch(candidate, { signal: options.signal, redirect: 'manual' });
+          } catch (error) {
+            if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
+            lastReason = error instanceof Error ? `Image request failed: ${error.message}` : 'Image request failed.';
+            continue;
+          }
           const mediaType = response.headers.get('content-type')?.split(';', 1)[0] ?? 'application/octet-stream';
           if (!response.ok) { lastReason = `Image request returned HTTP ${response.status}.`; continue; }
           const contentLength = Number(response.headers.get('content-length'));
