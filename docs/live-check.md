@@ -18,6 +18,100 @@ language. There are five purchases and four rentals (three English, three Bulgar
 8. **R2 rent with a dog (Russian):** Ищу квартиру в аренду в Софии на длительный срок, двухкомнатную, с мебелью, до 900 евро в месяц. У нас собака, так что нужно чтобы хозяин разрешал животных, и хорошо бы рядом парк и метро.
 9. **R3 buy a new build (Russian):** Мы с мужем хотим купить трёхкомнатную квартиру в новостройке в Софии, около 250 тысяч евро, в хорошем спокойном районе, где живёт много иностранцев. Подскажите варианты.
 
+### Exact MCP calls and expected comparisons
+
+For each turn send the verbatim request above, then compare the actual tool call with the matching input below. These are
+the exact `search_listings` tool name, argument shape, and explicit search criteria; `limit: 15` is within the supported
+10–20 range. The natural-language request remains authoritative for wishes the schema cannot express (furnished, pets,
+garden, safety, green space, new build, and travel time); mark those wishes unverified unless returned evidence supports
+them. In particular, do not mistake a Sofia-wide search for a validated district or proximity filter.
+
+**E1 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["dvustaen"],"priceMax":200000,"maxPages":3},"limit":15}}
+```
+**E1 comparison:** expected to request a Sofia-wide sale search for `dvustaen` up to €200,000. Compare verified deal,
+city, type and price with output; metro proximity and safe/green/central preferences are unverified unless supported.
+
+**E2 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":[],"propertyTypes":["ednostaen"],"priceMax":800,"maxPages":3},"limit":15}}
+```
+**E2 comparison:** expected to request a Sofia-wide rent search up to €800/month. Inspect actual type/price verification;
+furnishing, cat acceptance and Business Park journey are unverified search wishes. Check the named-destination call below.
+
+**E3 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["kashta"],"priceMax":250000,"maxPages":3},"limit":15}}
+```
+**E3 comparison:** expected to request the `kashta` house type specifically, for sale up to €250,000 in Sofia. Confirm
+house type is present in verified coverage and returned results; garden, quietness and commute remain unverified wishes.
+
+**B1 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["dvustaen"],"priceMax":150000,"maxPages":3},"limit":15}}
+```
+**B1 comparison:** expected to request a Sofia-wide two-room sale search up to €150,000. Check metro as a wish separately;
+do not claim it was a filter unless a tool call actually provides that filter.
+
+**B2 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":["Студентски град"],"propertyTypes":[],"priceMax":255.65,"maxPages":3},"limit":15}}
+```
+**B2 comparison:** expected to request rent in Студентски град with the 500 BGN ceiling converted to €255.65/month
+(500 ÷ 1.95583), plus inspect whether an additional university-area search was actually made. District resolution,
+monthly unit, and original-to-euro conversion must be verified from the call and output; university proximity is not
+implied by this district alone.
+
+**B3 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":["Бояна","Драгалевци"],"propertyTypes":["kashta","mnogostaen"],"priceMax":1500,"maxPages":3},"limit":15}}
+```
+**B3 comparison:** expected to request rent up to €1,500 in both named districts and both house and large-apartment types
+at once. Verify every district and type in filter verification/coverage and note returned coverage; garden, children and
+dog acceptance are unverified unless supported by results.
+
+**R1 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["ednostaen","dvustaen"],"priceMax":120000,"maxPages":3},"limit":15}}
+```
+**R1 comparison:** expected to request both one-room and two-room sale types up to €120,000. Check both types in verified
+coverage and whether results support them. Rental yield, center and university proximity are not established by this call.
+
+**R2 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"rent","city":"sofia","districts":[],"propertyTypes":["dvustaen"],"priceMax":900,"maxPages":3},"limit":15}}
+```
+**R2 comparison:** expected to request two-room rent up to €900/month. Check type, deal and monthly euro ceiling; furniture,
+dog permission and park preference need returned evidence. Metro is checked separately below.
+
+**R3 call**
+```json
+{"name":"search_listings","arguments":{"criteria":{"deal":"sale","city":"sofia","districts":[],"propertyTypes":["tristaen"],"priceMax":250000,"maxPages":3},"limit":15}}
+```
+**R3 comparison:** expected to request three-room sale up to €250,000. Verify that type and price were applied; new-build,
+quietness and international-neighbourhood wishes are unverified unless supported by returned evidence.
+
+For nearest-metro and named-place checks, select a returned listing in the owner's private session and replace the made-up
+sample ID; `area_context` only accepts a listing already stored locally. To check E1/B1/R2 metro output use:
+
+```json
+{"name":"area_context","arguments":{"listingId":"1c100000000000001","radiusMeters":1000}}
+```
+
+The comparison is the returned `nearestMetro` station and its `mode: metro`, not a nearby bus stop; distinguish the
+straight-line nearest-station measurement from any pedestrian-route distance. For E2 destination distance, supply
+Business Park Sofia's coordinates from an approved local source (do not guess coordinates):
+
+```json
+{"name":"area_context","arguments":{"listingId":"1c100000000000001","radiusMeters":1000,"destination":{"name":"Business Park Sofia","latitude":42.63,"longitude":23.38}}}
+```
+
+These coordinates are approximate call inputs, not evidence of a route; the output labels this distance straight-line.
+Record location precision and mark actual route/time unverified. Redaction is applied to listing descriptions by the
+tool; compare a privately viewed redacted result with its price and area, and confirm contacts alone are removed. Do not
+copy either version into the report.
+
 ### Expected comparisons
 
 For every turn inspect the `search_listings` calls and final answer against the original wishes; don't assume a wish was a

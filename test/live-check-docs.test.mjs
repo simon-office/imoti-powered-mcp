@@ -8,7 +8,7 @@ const read = path => readFile(new URL(path, root), 'utf8');
 test('live-check documentation gives executable memory and refresh steps', async () => {
   const doc = await read('docs/live-check.md');
   const examples = [...doc.matchAll(/```json\s*([\s\S]*?)\s*```/g)].map(([, json]) => JSON.parse(json));
-  assert.deepEqual(examples.slice(0, 4), [
+  assert.deepEqual(examples.filter(example => ['save_search', 'save_note', 'watch_listing', 'get_changes'].includes(example.name)), [
     {
       name: 'save_search',
       arguments: {
@@ -111,6 +111,19 @@ test('stage 5 owner procedure covers the nine exact requests and expected compar
   assert.match(doc, /Owner live check \(stage 5/);
   for (const request of requests) assert.ok(doc.includes(request), `missing exact request: ${request}`);
   for (const phrase of [/five purchases and four rentals/i, /every requested district[\s\S]*?resolves/i, /coverage of several types\s+at once/i, /Sofia-wide totals[\s\S]*?first alphabetical districts[\s\S]*?result pages were fetched/i, /monthly amount[\s\S]*?reported in euros[\s\S]*?1\.95583/i, /redaction[\s\S]*?contacts only[\s\S]*?prices and areas/i, /metro.stop mode[\s\S]*?nearest metro station/i, /distance to a named place/i, /truncated[\s\S]*?incomplete or unknown/i, /verified[\s\S]*?unverified/i, /redacted[\s\S]*?result template/i, /Never copy page text, personal data, contact details, photos, credentials or raw user data/i]) assert.match(doc, phrase);
+});
+
+test('stage 5 gives exact runnable calls and concrete result comparisons for every request', async () => {
+  const doc = await read('docs/live-check.md');
+  const stage5 = doc.split('## Stage 4:')[0];
+  assert.match(stage5, /exact `search_listings` tool name[\s\S]*?criteria[\s\S]*?limit/);
+  for (const label of ['E1', 'E2', 'E3', 'B1', 'B2', 'B3', 'R1', 'R2', 'R3']) {
+    assert.match(stage5, new RegExp(`\\*\\*${label} call\\*\\*[\\s\\S]*?"name":"search_listings"`));
+    assert.match(stage5, new RegExp(`\\*\\*${label} comparison:\\*\\*[\\s\\S]*?expected to`));
+  }
+  assert.match(stage5, /B2 call[\s\S]*?priceMax":255\.65[\s\S]*?1\.95583/);
+  assert.match(stage5, /area_context[\s\S]*?nearestMetro[\s\S]*?straight-line/);
+  assert.match(stage5, /destination[\s\S]*?Business Park Sofia[\s\S]*?straight-line/);
 });
 
 test('README reports stage 5 prepared pending Simon owner live check', async () => {
