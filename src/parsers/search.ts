@@ -73,8 +73,9 @@ function parseItem(item: HTMLElement, base: string, categorySlug: string | null)
       .map(label => ({ type, label })))
     .sort((a, b) => b.label.length - a.label.length)
     .find(({ label }) => title?.toLocaleLowerCase().includes(label.toLocaleLowerCase()));
-  const businessSubtype = categoryType?.slug === 'biznes-imot' && /^(?:банков|финансов|застрахователен)\s/i.test(titleTypeLabel);
-  const typeMatch = businessSubtype ? { type: categoryType!, label: titleTypeLabel } : matchedType;
+  const typeMatch = categoryType?.slug === 'biznes-imot'
+    ? { type: categoryType, label: titleTypeLabel || categoryType.cardLabel }
+    : matchedType;
   const floorMatch = info.match(/(Партер|\d+\s*[-–]?\s*(?:ви|ри|ти|ми))(?:\s*ет\.?)*\s*(?:от\s*(\d+))?/i);
   const floorNumber = floorMatch?.[1]?.match(/\d+/)?.[0];
   const promoAsset = item.querySelector('img.promoLine')?.getAttribute('src') ?? '';

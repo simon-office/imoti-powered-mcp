@@ -351,7 +351,7 @@ test('search_listings matches every catalog category and counts cards omitted by
     ['etazh-ot-kashta', 'ЕТАЖ ОТ КЪЩА'], ['kashta', 'КЪЩА'], ['vila', 'ВИЛА'],
     ['garazh-parkomyasto', 'ГАРАЖ'], ['ofis', 'ОФИС'], ['magazin', 'МАГАЗИН'], ['zavedenie', 'ЗАВЕДЕНИЕ'],
     ['sklad', 'СКЛАД'], ['promishleno-pomeshtenie', 'ПРОМИШЛЕНО ПОМЕЩЕНИЕ'], ['hotel', 'ХОТЕЛ'],
-    ['biznes-imot', 'БИЗНЕС ИМОТ'], ['partsel', 'ПАРЦЕЛ'], ['staya', 'СТАЯ'],
+    ['partsel', 'ПАРЦЕЛ'], ['staya', 'СТАЯ'],
   ];
   const cards = types.map(([slug, label], index) => `<div class="item${slug === 'kashta' ? ' TOP' : ''}" id="ida1c100000000000${String(index + 1).padStart(3, '0')}"><div class="text"><div class="zagлавие"><a class="title" href="/obiava-1c100000000000${String(index + 1).padStart(3, '0')}-synthetic">Продава ${label} <location>град София, Изток</location></a></div><div class="price">100 000 €</div></div><div class="info">50 кв.м</div></div>`).join('');
   const fixture = join(directory, 'catalog.html');

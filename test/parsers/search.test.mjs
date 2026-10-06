@@ -119,6 +119,8 @@ test('URL category types abbreviated industrial cards and overrides subtype-like
   assert.equal(industrial.listings[0].propertyType.slug, 'promishleno-pomeshtenie');
   const business = parseSearchResults(await fixture('search-biznes-imot.html'), 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/biznes-imot');
   assert.deepEqual(business.listings[0].propertyType, { slug: 'biznes-imot', label: 'БАНКОВ ОФИС', rooms: null });
+  const businessOffice = parseSearchResults(await fixture('search-biznes-imot-office.html'), 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/biznes-imot');
+  assert.deepEqual(businessOffice.listings[0].propertyType, { slug: 'biznes-imot', label: 'ОФИС', rooms: null });
   const fallback = parseSearchResults('<div class="item" id="ida-office"><a class="title">Продава ОФИС</a></div>');
   assert.equal(fallback.listings[0].propertyType.slug, 'ofis');
 });
