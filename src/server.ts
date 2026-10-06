@@ -289,7 +289,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const controller = new AbortController();
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const timeoutMs = deps.photoRetrievalTimeoutMs ?? 10_000;
-        const page = await Promise.race([
+        const retrievedPage = await Promise.race([
           adapter.getListingPhotos(listingId, pageReferences, { signal: controller.signal }),
           new Promise<never>((_resolve, reject) => {
             timeout = setTimeout(() => {
@@ -299,6 +299,18 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
             }, timeoutMs);
           }),
         ]).finally(() => { if (timeout) clearTimeout(timeout); });
+        // Keep retained image payloads (including data later encoded for host assessment)
+        // bounded independently of the three-reference page-size limit.
+        const photoByteBudget = 32 * 1024;
+        let acceptedPhotoBytes = 0;
+        const page = retrievedPage.map(photo => {
+          const size = photo.bytes?.byteLength ?? 0;
+          if (size > photoByteBudget - acceptedPhotoBytes) {
+            return { listingId: photo.listingId, reference: photo.reference, mediaType: photo.mediaType, unavailableReason: `Photo omitted because the per-call ${photoByteBudget}-byte budget would be exceeded.` };
+          }
+          acceptedPhotoBytes += size;
+          return photo;
+        });
         const photos = page.map(({ listingId: photoListingId, reference, mediaType, unavailableReason }) => ({ listingId: photoListingId, reference, mediaType, ...(unavailableReason ? { unavailableReason } : {}) }));
         const uncertainty = photos.flatMap(photo => photo.unavailableReason ? [`Photo ${photo.reference}: ${photo.unavailableReason}`] : []);
         const result = await assessListingPhotos(page, deps.photoAssessment ?? configuredPhotoAssessmentOptions(process.env));

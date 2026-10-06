@@ -301,6 +301,32 @@ test('photo pagination retrieves only a bounded subset per call and walks the co
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('photo retrieval enforces a per-call byte budget and advances across oversized images', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-byte-budget-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const refs = ['https://images.fake.test/small.jpg', 'https://images.fake.test/medium.jpg', 'https://images.fake.test/large.jpg', 'https://images.fake.test/next.jpg'];
+  storage.upsertListing({ id: 'byte-budget-inventory', photos: refs });
+  const adapter = new FixtureAdapter({}, { photos: {
+    [refs[0]]: new Uint8Array(20_000),
+    [refs[1]]: new Uint8Array(20_000),
+    [refs[2]]: new Uint8Array(80_000),
+    [refs[3]]: new Uint8Array(20_000),
+  } });
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const first = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'byte-budget-inventory' } });
+      assert.equal(first.structuredContent.photos[0].unavailableReason, undefined);
+      assert.match(first.structuredContent.photos[2].unavailableReason, /byte budget/i);
+      assert.equal(first.structuredContent.photos[2].bytes, undefined);
+      assert.equal(first.structuredContent.nextOffset, 3);
+      assert.ok(Buffer.byteLength(JSON.stringify(first), 'utf8') < 64 * 1024);
+      const next = await client.callTool({ name: 'get_listing_photos', arguments: { listingId: 'byte-budget-inventory', offset: 3 } });
+      assert.equal(next.structuredContent.photos[0].unavailableReason, undefined);
+      assert.equal(next.structuredContent.nextOffset, null);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('photo retrieval deadline aborts a stalled adapter and allows pagination to continue', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-photo-deadline-'));
   const storage = openStorage(join(directory, 'test.db'));
@@ -364,7 +390,7 @@ test('photo assessment does not claim attached images when no host block is elig
       assert.equal(result.content.filter(block => block.type === 'image').length, 0);
       assert.match(result.content[0].text, /No image content was attached/);
       assert.doesNotMatch(result.content[0].text, /Assess the attached image content/);
-      assert.ok(result.structuredContent.uncertainty.some(text => text.includes(reference) && text.includes('size exceeds 200,000 bytes')));
+      assert.ok(result.structuredContent.uncertainty.some(text => text.includes(reference) && /byte budget/i.test(text)));
     });
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
