@@ -16,10 +16,13 @@ claude --plugin-dir .
 ```
 
 In Claude Code, confirm the plugin appears in `/mcp` as `plugin:imoti-powered-mcp:imoti` and that its
-`property-search` skill is available. Ask it to find a two-bedroom apartment in Sofia under €350,000 near the metro,
-then ask for a concise digest of changes for a saved search using `search-feedback-digest`. Check the tool output and
-skill guidance against the returned evidence; do not infer a result when the site returns no matches or a protective
-screen. If a challenge appears, stop automated access and continue manually in visible mode.
+`property-search` skill is available. The root `.mcp.json` exposes the project server `imoti`; that duplicate must be
+declined. Use the plugin server `plugin:imoti-powered-mcp:imoti`. For the live workflow, call
+`search_listings` for a two-bedroom apartment in Sofia under €350,000 near the metro, then call `save_note` and/or
+`watch_listing` for a returned listing. Close the chat/session, run `npm run refresh --`, reopen the chat, and call
+`get_changes` to inspect the resulting digest. See [`sample-requests.md`](sample-requests.md) for request examples.
+Check tool output and skill guidance against returned evidence; do not infer a result when the site returns no matches or
+a protective screen. If a challenge appears, stop automated access and continue manually in visible mode.
 
 ### Stage 4 checks
 
@@ -48,7 +51,7 @@ raw user data.
 | Clean install/build/test | | |
 | `claude plugin validate .` | | |
 | Plugin loading and `/mcp` tool | | |
-| `search-feedback-digest` workflow | | |
+| `search_listings` → `save_note` and/or `watch_listing` → `npm run refresh --` → `get_changes` workflow | | |
 | Configured collection limits | | |
 | Current/stale Sofia cache behavior | | |
 | No-coordinate explanation | | |

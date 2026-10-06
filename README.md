@@ -82,6 +82,9 @@ npm test
 claude --plugin-dir .
 ```
 
+When Claude Code asks which MCP server to use, the root `.mcp.json` exposes the project server `imoti`; that duplicate
+must be declined. Use the plugin server `plugin:imoti-powered-mcp:imoti`.
+
 In the Claude Code session, try: “Find a two-bedroom apartment in Sofia under €350,000, within walking distance of the metro.” See [`docs/sample-requests.md`](docs/sample-requests.md) for tool-call examples.
 
 ## Browser adapter
