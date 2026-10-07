@@ -1,9 +1,10 @@
 import { HTMLElement, parse } from 'node-html-parser';
+import { propertyTypeCatalog } from '../search/slugs.js';
 import { redactContactText } from './redaction.js';
 
 export type ListingDetails = {
   id: string | null; url: string | null; title: string | null; dealType: 'sale' | 'rent' | 'unknown';
-  propertyType: { label: string; rooms: number | null } | null;
+  propertyType: { slug: string; label: string; rooms: number | null } | null;
   price: { amount: number; currency: string } | null; pricePerM2: number | null; priceLowered: boolean;
   areaM2: number | null; floor: number | null; floorsTotal: number | null; gas: boolean | null; districtHeating: boolean | null;
   construction: string | null; constructionPeriod: string | null; description: string | null;
@@ -80,7 +81,11 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const crumbs: string[] = (breadcrumb?.itemListElement ?? []).map((entry: any) => String(entry.item?.name ?? entry.name ?? '').trim());
   const headerTitle = clean(document.querySelector('.advHeader .title'));
   const title = headerTitle;
-  const typeMatch = title?.match(/(\d+\s*[-–]?\s*СТАЕН|МЕЗОНЕТ|АТЕЛИЕ|КЪЩА|ОФИС)/i);
+  const cardType = propertyTypeCatalog
+    .flatMap(type => [type.cardLabel, ...(type.slug === 'garazh-parkomyasto' ? ['ГАРАЖ', 'ПАРКОМЯСТО'] : [])].map(label => ({ type, label })))
+    .sort((a, b) => b.label.length - a.label.length)
+    .find(({ label }) => title?.toLocaleLowerCase().includes(label.toLocaleLowerCase()));
+  const typeMatch = cardType ? { label: cardType.label } : null;
   const locationNode = document.querySelector('.advHeader .location');
   const streetNode = locationNode?.querySelector(':scope > div');
   const locationParts = (locationNode?.childNodes ?? []).filter((node) => node !== streetNode).map((node) => node.textContent ?? '').join(' ').split(/[,\n]/).map((part) => part.trim()).filter(Boolean);
@@ -119,7 +124,7 @@ export function parseListing(input: string | Uint8Array, url?: string): ListingD
   const period = clean(constructionStrong[1]) ?? constructionText?.match(/Въведен в експлоатация\s*(.+)$/i)?.[1]?.trim() ?? null;
   return {
     id, url: url ?? null, title, dealType: /наем|отдава/i.test(title ?? '') ? 'rent' : /продава|продаж/i.test(title ?? '') || /продаж/i.test(crumbs[1] ?? '') ? 'sale' : 'unknown',
-    propertyType: typeMatch ? { label: typeMatch[1].replace(/\s+/g, ''), rooms: Number(typeMatch[1].match(/\d+/)?.[0]) || null } : null,
+    propertyType: cardType ? { slug: cardType.type.slug, label: typeMatch!.label.replace(/\s+/g, ' '), rooms: Number(typeMatch!.label.match(/\d+/)?.[0]) || null } : null,
     price: amount !== null && currency ? { amount, currency } : null, pricePerM2, priceLowered: lowered,
     areaM2: numeric(areaText?.match(/[\d\s,.]+/)?.[0]), floor: floorMatch ? (floorNumber ? Number(floorNumber) : 0) : null, floorsTotal: floorMatch?.[2] ? Number(floorMatch[2]) : null,
     gas: truth(param(document, /^Газ/i)), districtHeating: truth(param(document, /^Т[ЕE]Ц/i)), construction, constructionPeriod: period, description,

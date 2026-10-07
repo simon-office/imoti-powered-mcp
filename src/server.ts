@@ -354,7 +354,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           // Each page must finish parsing before an absent listing can be considered no longer observed.
           for (const url of built.urls) {
             const page = await adapter.fetchPage(url);
-            const parsedPage = parseSearchResults(page.html, url);
+            const parsedPage = parseSearchResults(page.html, page.url);
             if (parsedPage.nextPageUrl) complete = false;
             for (const item of parsedPage.listings) {
               if (!item.id || !item.url) continue;
@@ -469,7 +469,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           if (requestedPage > (criteria.startPage ?? 1) && paginationEnded.has(key)) continue;
           urls.push(url);
           const page = await adapter.fetchPage(url);
-          const parsed = parseSearchResults(page.html, url);
+          const parsed = parseSearchResults(page.html, page.url);
           pagesFetched++;
           pages.push({ pageUrl: url, pageNumber: parsed.pageNumber, totalCount: parsed.totalCount, nextPageUrl: parsed.nextPageUrl });
           if (!parsed.nextPageUrl) paginationEnded.add(key);
@@ -554,7 +554,9 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const output = { query: { urls, criteria }, verification: { ok: mismatches.length === 0, mismatches }, listings: results, observedAt, truncated, districtCounts, districtCoverage, contributingPages, pagesFetched, pages, coverage, excludedPromoted, omittedByTypeFilter };
         const knownTotal = criteria.districts.length ? Object.values(districtCoverage).reduce((sum, item) => sum + (item.total ?? 0), 0) : pages[0]?.totalCount;
         const affected = truncated ? ` Coverage truncated at configured ${criteria.maxPages}-page cap${excludedPromoted.length ? `; promoted cards consumed page coverage (${excludedPromoted.length} excluded)` : ''}.` : '';
-        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}${knownTotal === null || knownTotal === undefined ? '' : ` returned out of ${knownTotal} known total`}${truncated ? ' (truncated)' : ''}; filters ${output.verification.ok ? 'verified' : 'need review'}.${affected}${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
+        const omissionText = omittedByTypeFilter ? ` ${omittedByTypeFilter} cards were omitted by the property-type filter.` : '';
+        const filterText = results.length === 0 && omittedByTypeFilter > 0 ? 'filters need review' : `filters ${output.verification.ok ? 'verified' : 'need review'}`;
+        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}${knownTotal === null || knownTotal === undefined ? '' : ` returned out of ${knownTotal} known total`}${truncated ? ' (truncated)' : ''}; ${filterText}.${omissionText}${affected}${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });
 
@@ -711,7 +713,10 @@ function catalogTypeMatches(requested: string, slug?: string | null, label?: str
     return [slug, label].some(value => {
       if (!value) return false;
       try { return resolvePropertyType(value).slug === expected; }
-      catch { return propertyTypeCatalog.find(type => type.slug === expected)?.cardLabel.toLocaleLowerCase() === value.toLocaleLowerCase(); }
+      catch {
+        const type = propertyTypeCatalog.find(type => type.slug === expected);
+        return [type?.cardLabel, ...(expected === 'promishleno-pomeshtenie' ? ['ПРОМИШЛЕНО ПОМЕЩЕНИЕ'] : [])].some(label => label?.toLocaleLowerCase() === value.toLocaleLowerCase());
+      }
     });
   } catch { return false; }
 }

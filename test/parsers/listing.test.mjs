@@ -10,7 +10,7 @@ test('parses full street-level listing details and structured Offer fields', asy
   assert.equal(result.id, '1c100000000000001');
   assert.equal(result.title, 'Продава 3-СТАЕН измислен апартамент');
   assert.equal(result.dealType, 'sale');
-  assert.deepEqual(result.propertyType, { label: '3-СТАЕН', rooms: 3 });
+  assert.deepEqual(result.propertyType, { slug: 'tristaen', label: '3-СТАЕН', rooms: 3 });
   assert.deepEqual(result.price, { amount: 125000, currency: 'EUR' });
   assert.equal(result.pricePerM2, 1524);
   assert.equal(result.priceLowered, false);
@@ -151,7 +151,7 @@ test('uses DOM fallback, district precision, lowered price and VAT note', async 
   assert.deepEqual(result.photos, ['https://imotstatic1.focus.bg/fake-dom-full.jpg']);
   assert.equal(result.url, 'https://www.imot.bg/obiava-1c100000000000002-izmisleno');
   assert.equal(result.dealType, 'sale');
-  assert.deepEqual(result.propertyType, { label: '2-СТАЕН', rooms: 2 });
+  assert.deepEqual(result.propertyType, { slug: 'dvustaen', label: '2-СТАЕН', rooms: 2 });
   assert.equal(result.areaM2, 50);
   assert.equal(result.floor, 2);
   assert.equal(result.floorsTotal, 5);

@@ -82,7 +82,7 @@ export function analyzePhotos(photos: ListingPhoto[]): PhotoAssessment {
       if (dimensions) {
         images.push({ reference: photo.reference, ...dimensions, observations: [...observations], uncertainty });
         const ratio = dimensions.width / dimensions.height;
-        if (dimensions.width < 640 || dimensions.height < 640) observations.push(`Small image dimensions (${dimensions.width}×${dimensions.height}); below the 640-pixel inventory threshold.`);
+        if (Math.max(dimensions.width, dimensions.height) < 640) observations.push(`Small image dimensions (${dimensions.width}×${dimensions.height}); below the 640-pixel inventory threshold.`);
         if (ratio < 0.5 || ratio > 2) observations.push(`Unusual aspect ratio (${ratio.toFixed(2)}); outside the 0.5–2.0 inventory range.`);
         images[images.length - 1]!.observations = observations;
         observations.push(`Image dimensions: ${dimensions.width}×${dimensions.height}.`);

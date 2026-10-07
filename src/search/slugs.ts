@@ -215,7 +215,7 @@ export const propertyTypeCatalog = [
   { slug: 'magazin', bg: 'магазин', cardLabel: 'МАГАЗИН', deals: ['sale', 'rent'] },
   { slug: 'zavedenie', bg: 'заведение', cardLabel: 'ЗАВЕДЕНИЕ', deals: ['sale', 'rent'] },
   { slug: 'sklad', bg: 'склад', cardLabel: 'СКЛАД', deals: ['sale', 'rent'] },
-  { slug: 'promishleno-pomeshtenie', bg: 'промишлено помещение', cardLabel: 'ПРОМИШЛЕНО ПОМЕЩЕНИЕ', deals: ['sale', 'rent'] },
+  { slug: 'promishleno-pomeshtenie', bg: 'промишлено помещение', cardLabel: 'ПРОМ. ПОМЕЩЕНИЕ', deals: ['sale', 'rent'] },
   { slug: 'hotel', bg: 'хотел', cardLabel: 'ХОТЕЛ', deals: ['sale', 'rent'] },
   { slug: 'biznes-imot', bg: 'бизнес имот', cardLabel: 'БИЗНЕС ИМОТ', deals: ['sale', 'rent'] },
   { slug: 'partsel', bg: 'парцел', cardLabel: 'ПАРЦЕЛ', deals: ['sale'] },
@@ -230,7 +230,7 @@ function normalizePropertyType(value: string): string {
 
 export function resolvePropertyType(value: string): (typeof propertyTypeCatalog)[number] {
   const key = normalizePropertyType(value);
-  const match = propertyTypeCatalog.find(type => [type.slug, type.bg, type.cardLabel,
+  const match = propertyTypeCatalog.find(type => [type.slug, type.bg, type.cardLabel, ...(type.slug === 'promishleno-pomeshtenie' ? ['ПРОМИШЛЕНО ПОМЕЩЕНИЕ'] : []),
     ...(type.slug === 'garazh-parkomyasto' ? ['ГАРАЖ', 'ПАРКОМЯСТО'] : [])]
     .some(name => normalizePropertyType(name) === key));
   if (match) return match;

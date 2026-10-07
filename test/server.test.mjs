@@ -13,6 +13,7 @@ import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
 import { openStorage } from '../dist/storage/index.js';
 import { FixtureSofiaDataAdapter } from '../dist/adapter/sofia-data.js';
+import { parseSearchResults } from '../dist/parsers/search.js';
 
 async function withClient(server, fn) {
   const client = new Client({ name: 'test-client', version: '1.0.0' });
@@ -20,6 +21,14 @@ async function withClient(server, fn) {
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
   try { await fn(client); }
   finally { await client.close(); await server.close(); }
+}
+
+// Model a category request that lands on an unrestricted results page.
+function unrestrictedFixtureAdapter(fixture) {
+  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, fixture]]);
+  const fetchPage = adapter.fetchPage.bind(adapter);
+  adapter.fetchPage = async url => ({ ...await fetchPage(url), url: 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya' });
+  return adapter;
 }
 
 test('search MCP schema uses validated environment collection defaults', async () => {
@@ -313,7 +322,7 @@ test('search_listings defaults limit to 15 and rejects limits outside 10–20', 
 test('broad searches retain matching promoted cards and count promoted type-filter omissions separately', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-broad-promoted-'));
   const storage = openStorage(join(directory, 'test.db'));
-  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi\/grad-sofiya\/tristaen/, new URL('./fixtures/search-broad-promoted.html', import.meta.url)]]);
+  const adapter = unrestrictedFixtureAdapter(new URL('./fixtures/search-broad-promoted.html', import.meta.url));
   try {
     await withClient(createServer({ adapter, storage }), async client => {
       const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia', propertyTypes: ['tristaen'], priceMax: 160000, maxPages: 1 }, limit: 10 } });
@@ -324,6 +333,41 @@ test('broad searches retain matching promoted cards and count promoted type-filt
       assert.doesNotMatch(result.content[0].text, /Found 0 listings; filters verified/);
     });
   } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
+});
+
+test('zero search results report type-filter omissions without claiming verified filters', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-type-omission-zero-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const fixture = new URL('./fixtures/search-type-omission.html', import.meta.url);
+  const adapter = unrestrictedFixtureAdapter(fixture);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia', propertyTypes: ['ednostaen'], maxPages: 1 }, limit: 10 } });
+      assert.equal(result.structuredContent.listings.length, 0);
+      assert.equal(result.structuredContent.omittedByTypeFilter, 1);
+      assert.match(result.content[0].text, /1 cards were omitted/);
+      assert.doesNotMatch(result.content[0].text, /filters verified/);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('search_listings returns industrial and business subtype fixtures under their URL categories', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-category-authority-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([
+    [/\/promishleno-pomeshtenie$/, new URL('./fixtures/search-promishleno-pomeshtenie.html', import.meta.url)],
+    [/\/biznes-imot$/, new URL('./fixtures/search-biznes-imot.html', import.meta.url)],
+  ]);
+  try {
+    await withClient(createServer({ adapter, storage }), async client => {
+      for (const [slug, label] of [['promishleno-pomeshtenie', 'ПРОМ. ПОМЕЩЕНИЕ'], ['biznes-imot', 'БАНКОВ ОФИС']]) {
+        const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { propertyTypes: [slug], maxPages: 1 }, limit: 10 } });
+        assert.equal(result.structuredContent.listings.length, 1);
+        assert.deepEqual(result.structuredContent.listings[0].propertyType, { slug, label, rooms: null });
+        assert.equal(result.structuredContent.omittedByTypeFilter, 0);
+      }
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('search_listings matches every catalog category and counts cards omitted by type', async () => {
@@ -342,7 +386,7 @@ test('search_listings matches every catalog category and counts cards omitted by
   await (await import('node:fs/promises')).writeFile(fixture, `<html><body>${cards}</body></html>`);
   try {
     for (const [slug] of types) {
-      const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, fixture]]);
+      const adapter = unrestrictedFixtureAdapter(fixture);
       await withClient(createServer({ adapter, storage }), async client => {
         const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { deal: 'sale', city: 'Sofia', propertyTypes: [slug], maxPages: 1 }, limit: 20 } });
         assert.equal(result.isError, undefined, result.content?.[0]?.text);
@@ -370,6 +414,9 @@ test('get_listing reads live data, then uses a fresh observation unless refreshe
     await withClient(server, async client => {
       const first = await client.callTool({ name: 'get_listing', arguments: { url } });
       assert.equal(first.structuredContent.status, undefined);
+      const searchType = parseSearchResults(await readFile(new URL('./fixtures/search-normal.html', import.meta.url), 'utf8')).listings[0].propertyType;
+      assert.deepEqual(first.structuredContent.listing.propertyType, searchType);
+      assert.deepEqual(searchType, { slug: 'tristaen', label: '3-СТАЕН', rooms: 3 });
       assert.equal(first.structuredContent.listing.seller.name, 'Картична Агенция');
       assert.equal(first.structuredContent.listing.seller.authority, 'detail');
       assert.equal(first.structuredContent.listing.seller.conflict, false);
@@ -1086,7 +1133,7 @@ test('get_listing rejects non-canonical hosts and mismatched ids before fetching
 test('search_listings preserves multiple property types and client-filters types and room ranges', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-tools-'));
   const storage = openStorage(join(directory, 'test.db'));
-  const adapter = new FixtureAdapter([[/obiavi\/prodazhbi/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  const adapter = unrestrictedFixtureAdapter(new URL('./fixtures/search-normal.html', import.meta.url));
   try {
     const server = createServer({ adapter, storage });
     await withClient(server, async client => {
