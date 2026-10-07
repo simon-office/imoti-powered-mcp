@@ -79,6 +79,21 @@ test('compare_listings flags cross-category shared property keys as suspected re
   } finally { try { storage.close(); } catch {} await rm(directory, { recursive: true, force: true }); }
 });
 
+test('compare_listings reports ongoing rent and the promotion terms separately', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-promo-rent-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'promo-rent-a', dealType: 'rent', price: { amount: 699, currency: 'EUR' }, promotionalRent: { amount: 549, currency: 'EUR', durationMonths: 1, regularAmount: 699, source: 'Synthetic promotional rent sentence.' } });
+  storage.upsertListing({ id: 'promo-rent-b', dealType: 'rent', price: { amount: 800, currency: 'EUR' } });
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['promo-rent-a', 'promo-rent-b'] } });
+      assert.deepEqual(result.structuredContent.listings[0].price, { amount: 699, currency: 'EUR' });
+      assert.equal(result.structuredContent.listings[0].promotionalRent.amount, 549);
+      assert.equal(result.structuredContent.listings[0].promotionalRent.durationMonths, 1);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('MCP disconnect awaits local adapter and storage cleanup', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-disconnect-cleanup-'));
   const storage = openStorage(join(directory, 'test.db'));
@@ -457,7 +472,7 @@ for (const scenario of [
         const search = await client.callTool({ name: 'search_listings', arguments: { criteria: { maxPages: 1 }, limit: 10 } });
         assert.equal(search.isError, undefined, search.content?.[0]?.text);
         assert.deepEqual(search.structuredContent.listings[0].seller, { kind: scenario.kind, name: scenario.cardName });
-        const expectedSeller = { kind: scenario.kind, name: scenario.kind === 'agency' ? scenario.cardName : null, authority: 'detail', conflict: true };
+        const expectedSeller = { kind: scenario.kind, name: scenario.kind === 'agency' ? scenario.cardName : null, authority: 'detail', conflict: true, ...(scenario.kind === 'agency' ? { evidence: { description: scenario.description, structured: 'Агенция' } } : {}) };
         for (const [arguments_, cached] of [[{ url }, false], [{ id }, true], [{ id, refresh: true }, false]]) {
           const result = await client.callTool({ name: 'get_listing', arguments: arguments_ });
           assert.equal(result.isError, undefined, result.content?.[0]?.text);

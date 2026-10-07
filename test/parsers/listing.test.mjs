@@ -101,6 +101,20 @@ test('retains promotional first-month rent and full source while avoiding infere
   assert.deepEqual(facts.firstMonthRent, { value: sentence, source: sentence });
 });
 
+test('extracts promotional and regular rent with exact source evidence and separates planned milestones', async () => {
+  const result = parseListing(await fixture('listing-promotional-expected.html'));
+  const sentence = 'Цената е 549e промоция за 1 месец след което наемът става 699 !';
+  assert.deepEqual(result.promotionalRent, { amount: 549, currency: 'EUR', durationMonths: 1, regularAmount: 699, source: sentence });
+  assert.deepEqual(result.facts.expectedBuildStage, { value: { stage: 'Акт 16', date: 'края на 2027 г.' }, source: 'Очакван Акт 16: края на 2027 г.' });
+  assert.equal(result.facts.newBuildStage, null);
+  assert.deepEqual(parseListing('<div class="adPrice"></div><div class="moreInfo"><div class="text">Сградата е с Акт 16.</div></div>').facts.newBuildStage, { value: 'Акт 16', source: 'Сградата е с Акт 16.' });
+});
+
+test('preserves contradictory private description and structured agency seller evidence', async () => {
+  const result = parseListing(await fixture('listing-seller-conflict.html'));
+  assert.deepEqual(result.seller, { kind: 'agency', name: null, conflict: true, evidence: { description: 'От ЧАСТНО ЛИЦЕ.', structured: 'Агенция' } });
+});
+
 test('recognizes all grammatical furnished forms, explicit pet prohibitions, and supported construction stages', () => {
   const cases = [
     ['Обзаведена квартира.', true], ['Обзаведено жилище.', true], ['Необзаведена стая.', false],
