@@ -1394,16 +1394,35 @@ test('server_info exposes server metadata and selected data directory over memor
 });
 
 test('server_info defaults data directory to the user home', async () => {
-  const server = createServer();
-  const client = new Client({ name: 'test-client', version: '1.0.0' });
-  const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
-  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  const originalDataDir = process.env.IMOTI_DATA_DIR;
   try {
-    const result = await client.callTool({ name: 'server_info' });
-    assert.equal(result.structuredContent.dataDir, `${homedir()}/.imoti-powered-mcp`);
+    for (const initialDataDir of [undefined, '/tmp/imoti-test-data']) {
+      if (initialDataDir === undefined) delete process.env.IMOTI_DATA_DIR;
+      else process.env.IMOTI_DATA_DIR = initialDataDir;
+
+      const previousDataDir = process.env.IMOTI_DATA_DIR;
+      delete process.env.IMOTI_DATA_DIR;
+      try {
+        const server = createServer();
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        try {
+          const result = await client.callTool({ name: 'server_info' });
+          assert.equal(result.structuredContent.dataDir, `${homedir()}/.imoti-powered-mcp`);
+        } finally {
+          await client.close();
+          await server.close();
+        }
+      } finally {
+        if (previousDataDir === undefined) delete process.env.IMOTI_DATA_DIR;
+        else process.env.IMOTI_DATA_DIR = previousDataDir;
+      }
+      assert.equal(process.env.IMOTI_DATA_DIR, initialDataDir);
+    }
   } finally {
-    await client.close();
-    await server.close();
+    if (originalDataDir === undefined) delete process.env.IMOTI_DATA_DIR;
+    else process.env.IMOTI_DATA_DIR = originalDataDir;
   }
 });
 
