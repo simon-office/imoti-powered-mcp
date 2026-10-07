@@ -142,12 +142,24 @@ test('does not mistake proximity for an expected stage and only expects stages a
   const sequence = parseListing(await fixture(fixtures[2][0]));
   assert.deepEqual(sequence.facts.newBuildStage, { value: 'Акт 14', source: 'Акт 14.' });
   assert.deepEqual(sequence.facts.expectedBuildStage, { value: { stage: 'Акт 15', date: 'края на годината' }, source: 'Очакван Акт 15 до края на годината' });
-  for (const [reached, expected] of [['Акт 15', '15'], ['Акт 16', '15']]) {
-    const sentence = `Сградата е с ${reached}. Очакван Акт ${expected} до края на годината.`;
-    const result = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${sentence}</div></div>`);
-    assert.equal(result.facts.expectedBuildStage, null, `${reached} must suppress ${expected}`);
-  }
 });
+
+for (const [relation, name, id, reached] of [
+  ['equal to', 'listing-stage-equal-4.html', '1c100000000000004', 'Акт 15'],
+  ['below', 'listing-stage-lower-5.html', '1c100000000000005', 'Акт 16'],
+]) {
+  test(`suppresses an expected stage ${relation} the reached stage in a synthetic listing fixture`, async () => {
+    const html = await fixture(name);
+    const url = `https://www.imot.bg/obiava-${id}`;
+    const source = `Сградата е с ${reached}.`;
+    assert.ok(html.includes(`<link rel="canonical" href="${url}">`));
+    const result = parseListing(html, url);
+    assert.equal(result.id, id);
+    assert.equal(result.description, `${source} Очакван Акт 15 до края на годината.`);
+    assert.deepEqual(result.facts.newBuildStage, { value: reached, source });
+    assert.equal(result.facts.expectedBuildStage, null);
+  });
+}
 
 test('preserves contradictory private description and structured agency seller evidence', async () => {
   const result = parseListing(await fixture('listing-seller-conflict.html'));
