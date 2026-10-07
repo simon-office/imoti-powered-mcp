@@ -156,7 +156,9 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const auction = facts?.auction?.value === true;
           const floorValue = typeof stored?.floor === 'number' ? stored.floor : null;
           const floorsTotalValue = typeof stored?.floorsTotal === 'number' ? stored.floorsTotal : null;
-          const comparisonContext = { basement: floorValue !== null && floorValue < 0, topFloor: floorValue !== null && floorsTotalValue !== null && floorValue === floorsTotalValue, floor: floorValue, floorsTotal: floorsTotalValue, construction: stored?.construction ?? null, constructionPeriod: stored?.constructionPeriod ?? null, legalStatus: facts?.newBuildStage?.value ?? null, vat: typeof stored?.vatNote === 'string' ? stored.vatNote : facts?.vat?.value ?? null };
+          const reachedBuildStage = facts?.newBuildStage ?? null;
+          const expectedBuildStage = facts?.expectedBuildStage ?? null;
+          const comparisonContext = { basement: floorValue !== null && floorValue < 0, topFloor: floorValue !== null && floorsTotalValue !== null && floorValue === floorsTotalValue, floor: floorValue, floorsTotal: floorsTotalValue, construction: stored?.construction ?? null, constructionPeriod: stored?.constructionPeriod ?? null, legalStatus: reachedBuildStage?.value ?? null, legalStatusEvidence: reachedBuildStage, expectedBuildStage, vat: typeof stored?.vatNote === 'string' ? stored.vatNote : facts?.vat?.value ?? null };
           const vatTerms = typeof stored?.vatNote === 'string' ? stored.vatNote : typeof (stored?.facts as any)?.vat?.value === 'string' ? (stored?.facts as any).vat.value : null;
           const areaScope = typeof stored?.areaScope === 'string' ? stored.areaScope : null;
           if (areaScope && !/whole|total|цял/i.test(areaScope)) explanations.pricePerSquareMeter = 'Area may cover only part of the property; €/m² is not a whole-property comparison.';

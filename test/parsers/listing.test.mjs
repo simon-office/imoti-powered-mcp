@@ -110,6 +110,19 @@ test('extracts promotional and regular rent with exact source evidence and separ
   assert.deepEqual(parseListing('<div class="adPrice"></div><div class="moreInfo"><div class="text">Сградата е с Акт 16.</div></div>').facts.newBuildStage, { value: 'Акт 16', source: 'Сградата е с Акт 16.' });
 });
 
+test('keeps expected construction milestones and completion wording separate from reached stage', async () => {
+  const result = parseListing(await fixture('listing-build-stage-synthetic.html'));
+  assert.deepEqual(result.facts.newBuildStage, { value: 'before АКТ 15', source: 'ПРЕД АКТ 15!' });
+  const reachedCurrent = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">Сградата е с Акт 16</div></div>`);
+  assert.deepEqual(reachedCurrent.facts.newBuildStage, { value: 'Акт 16', source: 'Сградата е с Акт 16' });
+  assert.deepEqual(result.facts.expectedBuildStage, { value: { stage: 'АКТ 16', date: 'края на годината!' }, source: 'АКТ 16 до края на годината!' });
+  const completion = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">Сградата е пред Акт 16 и ще бъде завършена лятото на 2026г.</div></div>`);
+  assert.deepEqual(completion.facts.expectedBuildStage, { value: { stage: 'Акт 16', date: 'лятото на 2026г.' }, source: 'Сградата е пред Акт 16 и ще бъде завършена лятото на 2026г.' });
+  const historical = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">Акт 16 от 2019</div></div>`);
+  assert.deepEqual(historical.facts.newBuildStage, { value: 'Акт 16', source: 'Акт 16 от 2019' });
+  assert.equal(historical.facts.expectedBuildStage, null);
+});
+
 test('preserves contradictory private description and structured agency seller evidence', async () => {
   const result = parseListing(await fixture('listing-seller-conflict.html'));
   assert.deepEqual(result.seller, { kind: 'agency', name: null, conflict: true, evidence: { description: 'От ЧАСТНО ЛИЦЕ.', structured: 'Агенция' } });

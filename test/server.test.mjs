@@ -94,6 +94,26 @@ test('compare_listings reports ongoing rent and the promotion terms separately',
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('compare_listings keeps expected build stage out of reached legal status and retains both evidence records', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-build-stage-compare-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const expected = { value: { stage: 'Акт 16', date: 'края на годината' }, source: 'Акт 16 до края на годината!' };
+  const reached = { value: 'Акт 15', source: 'ПРЕД АКТ 15!' };
+  storage.upsertListing({ id: 'synthetic-expected-stage', facts: { expectedBuildStage: expected, newBuildStage: reached } });
+  storage.upsertListing({ id: 'synthetic-reached-stage', facts: { newBuildStage: { value: 'Акт 16', source: 'Сградата е с Акт 16' } } });
+  try {
+    await withClient(createServer({ storage }), async client => {
+      const result = await client.callTool({ name: 'compare_listings', arguments: { listingIds: ['synthetic-expected-stage', 'synthetic-reached-stage'] } });
+      const [planned, completed] = result.structuredContent.listings;
+      assert.equal(planned.comparisonContext.legalStatus, 'Акт 15');
+      assert.deepEqual(planned.comparisonContext.expectedBuildStage, expected);
+      assert.deepEqual(planned.comparisonContext.legalStatusEvidence, reached);
+      assert.equal(completed.comparisonContext.legalStatus, 'Акт 16');
+      assert.deepEqual(completed.comparisonContext.legalStatusEvidence, { value: 'Акт 16', source: 'Сградата е с Акт 16' });
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('MCP disconnect awaits local adapter and storage cleanup', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-disconnect-cleanup-'));
   const storage = openStorage(join(directory, 'test.db'));
