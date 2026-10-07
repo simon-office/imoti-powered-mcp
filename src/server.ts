@@ -135,7 +135,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
       description: 'Compare 2–10 locally stored listings using observed asking prices and evidence. Asking-price positioning is only this supplied sample, not completed sales or market-wide valuation.',
       inputSchema: { listingIds: z.array(z.string().min(1)).min(2).max(10).refine(ids => new Set(ids).size === ids.length, 'listingIds must be unique') },
       outputSchema: z.object({
-        listings: z.array(z.object({ id: z.string(), dealType: z.enum(['sale', 'rent', 'unknown']), pricePeriod: z.string().nullable(), vatTerms: z.string().nullable(), areaScope: z.string().nullable(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), comparisonContext: z.unknown(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
+         listings: z.array(z.object({ id: z.string(), dealType: z.enum(['sale', 'rent', 'unknown']), pricePeriod: z.string().nullable(), promotionalRent: z.unknown().nullable(), vatTerms: z.string().nullable(), areaScope: z.string().nullable(), price: z.unknown().nullable(), areaM2: z.number().nullable(), pricePerSquareMeter: z.unknown().nullable(), comparisonContext: z.unknown(), photoAssessment: z.unknown().nullable(), location: z.unknown(), uncertainty: z.array(z.string()), observedAt: z.string().nullable(), explanations: z.record(z.string(), z.string()) })),
         duplicateEvidence: z.array(z.object({ listingIds: z.array(z.string()).length(2), kind: z.literal('possible_repost'), confidence: z.literal('suspected'), propertyMatch: z.literal('suspected'), evidence: z.string() })),
         askingPricePositioning: z.unknown(),
       }),
@@ -152,6 +152,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           const perM2 = amount !== null && currency && validArea ? { amount: amount / area!, currency } : null;
           const dealType = stored?.dealType === 'sale' || stored?.dealType === 'rent' ? stored.dealType : 'unknown';
           const facts = stored?.facts as Record<string, any> | undefined;
+          const promotionalRent = stored?.promotionalRent ?? facts?.promotionalRent?.value ?? null;
           const auction = facts?.auction?.value === true;
           const floorValue = typeof stored?.floor === 'number' ? stored.floor : null;
           const floorsTotalValue = typeof stored?.floorsTotal === 'number' ? stored.floorsTotal : null;
@@ -175,7 +176,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
           if (amount === null || !currency) uncertainty.push('Asking price or currency is unavailable.');
           if (!validArea) uncertainty.push('Area in square metres is unavailable.');
           if (areaScope && !/whole|total|цял/i.test(areaScope)) uncertainty.push('Area may cover only part of the property; €/m² is not a whole-property comparison.');
-          return { id, dealType, pricePeriod: auction ? 'auction/public-sale price' : dealType === 'rent' ? 'per month' : dealType === 'sale' ? 'asking price' : null, vatTerms, areaScope, price: amount === null || !currency ? null : { amount, currency }, areaM2: validArea ? area : null, pricePerSquareMeter: perM2, comparisonContext, photoAssessment, location, uncertainty, observedAt: stored?.lastObservedAt ?? null, explanations };
+          return { id, dealType, pricePeriod: auction ? 'auction/public-sale price' : dealType === 'rent' ? 'per month' : dealType === 'sale' ? 'asking price' : null, promotionalRent, vatTerms, areaScope, price: amount === null || !currency ? null : { amount, currency }, areaM2: validArea ? area : null, pricePerSquareMeter: perM2, comparisonContext, photoAssessment, location, uncertainty, observedAt: stored?.lastObservedAt ?? null, explanations };
         });
         const knownDeals = new Set(listings.map(item => item.dealType));
         const mixedDeals = knownDeals.has('sale') && knownDeals.has('rent');
@@ -577,7 +578,8 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const latestCard = observations.filter(observation => !isDetailObservation(observation.sourceUrl)).at(-1)?.normalized as Listing | undefined;
         if (!refresh && latest && Date.now() - Date.parse(latest.observedAt) < 6 * 60 * 60 * 1000) {
           const cached = latest.normalized as Listing;
-          return { structuredContent: { listing: withSellerEvidence(latestCard, cached), evidenceReconciliation: reconcileCardDetail(latestCard, cached), observedAt: latest.observedAt, cached: true }, content: [{ type: 'text' as const, text: `${cached.title ?? `Listing ${listingId}`} (cached observation).` }] };
+          const cachedListing = withSellerEvidence(latestCard, cached);
+          return { structuredContent: { listing: cachedListing, evidenceReconciliation: reconcileCardDetail(latestCard, cached), observedAt: latest.observedAt, cached: true }, content: [{ type: 'text' as const, text: `${listingSummary(cachedListing)} (cached observation).` }] };
         }
         const page = await adapter.fetchPage(canonicalUrl);
         const parsed = parseListing(page.html, canonicalUrl);
@@ -586,7 +588,7 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const listing: Listing = unavailable ? { id: listingId, status: 'not_available' } : { ...parsed, id: listingId, status: 'available' };
         storage.upsertListing(listing, observedAt);
         storage.recordObservation({ listingId, observedAt, sourceUrl: canonicalUrl, raw: listing, normalized: listing });
-        return { structuredContent: { listing: withSellerEvidence(latestCard, listing), evidenceReconciliation: unavailable ? { authority: 'detail', discrepancies: [] } : reconcileCardDetail(latestCard, listing), observedAt, cached: false }, content: [{ type: 'text' as const, text: unavailable ? `Listing ${listingId} is no longer available.` : `${parsed.title ?? `Listing ${listingId}`} refreshed.` }] };
+        return { structuredContent: { listing: withSellerEvidence(latestCard, listing), evidenceReconciliation: unavailable ? { authority: 'detail', discrepancies: [] } : reconcileCardDetail(latestCard, listing), observedAt, cached: false }, content: [{ type: 'text' as const, text: unavailable ? `Listing ${listingId} is no longer available.` : `${listingSummary(listing)} refreshed.` }] };
       } catch (error) { return toolError(error); }
     });
   }
@@ -615,7 +617,7 @@ function reconcileCardDetail(card: Listing | undefined, detail: Listing): { auth
 
 function withSellerEvidence(card: Listing | undefined, detail: Listing): Listing {
   const cardSeller = card?.seller as { kind?: string; name?: string | null } | undefined;
-  const seller = detail.seller as { kind?: string; name?: string | null } | undefined;
+  const seller = detail.seller as { kind?: string; name?: string | null; conflict?: boolean; evidence?: unknown } | undefined;
   const description = typeof detail.description === 'string' ? detail.description : '';
   const descriptionSaysOwner = /(?:от\s+собственик|собственикът|частно\s+лице|директно\s+от\s+собственик)/i.test(description);
   const descriptionSaysAgency = /(?:чрез\s+агенци|агенцията|брокер)/i.test(description);
@@ -632,9 +634,18 @@ function withSellerEvidence(card: Listing | undefined, detail: Listing): Listing
       ...seller,
       name: cardSeller?.kind === 'agency' ? cardSeller.name ?? null : seller?.name ?? null,
       authority: 'detail',
-      conflict: disagreement,
+      conflict: disagreement || seller?.conflict === true,
+      ...(seller?.evidence ? { evidence: seller.evidence } : {}),
     },
   };
+}
+
+function listingSummary(listing: Listing): string {
+  const price = listing.price && typeof listing.price === 'object' ? listing.price as { amount?: unknown; currency?: unknown } : null;
+  const regular = typeof price?.amount === 'number' ? `${price.amount} ${typeof price.currency === 'string' ? price.currency : ''}`.trim() : null;
+  const promo = listing.promotionalRent as { amount?: number; durationMonths?: number } | undefined;
+  const rent = promo ? `Ongoing monthly rent ${regular}; promotional rent ${promo.amount} ${typeof price?.currency === 'string' ? price.currency : 'EUR'} for ${promo.durationMonths} month(s)` : regular ? `${listing.dealType === 'rent' ? 'Monthly rent' : 'Price'} ${regular}` : null;
+  return [listing.title ?? `Listing ${listing.id ?? ''}`, rent].filter(Boolean).join(' — ');
 }
 
 function haversineMeters(origin: { latitude: number; longitude: number }, latitude: number, longitude: number): number {
