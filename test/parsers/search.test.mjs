@@ -125,6 +125,12 @@ test('URL category types abbreviated industrial cards and overrides subtype-like
   assert.equal(fallback.listings[0].propertyType.slug, 'ofis');
 });
 
+test('rental business URL category preserves the pharmacy subtype label', async () => {
+  const page = parseSearchResults(await fixture('search-biznes-imot-apteka.html'), 'https://www.imot.bg/obiavi/naemi/grad-sofiya/biznes-imot');
+  assert.equal(page.listings[0].dealType, 'rent');
+  assert.deepEqual(page.listings[0].propertyType, { slug: 'biznes-imot', label: 'АПТЕКА', rooms: null });
+});
+
 test('every recognized URL category overrides a conflicting card label', async () => {
   const html = await fixture('search-category-conflict.html');
   for (const { slug } of propertyTypeCatalog) {
