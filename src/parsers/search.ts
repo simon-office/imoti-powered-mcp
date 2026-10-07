@@ -46,6 +46,20 @@ function absoluteHttps(href: string | null, base: string): string | null {
   }
 }
 
+function designatedStreet(value: string): string | null {
+  const designation = value.match(/^(ул\.|бул\.|улица|булевард)\s+(.+)$/iu);
+  if (!designation) return null;
+  const name = designation[2];
+  // Explicit name/address boundaries take precedence over free-text heuristics.
+  const quoted = name.match(/^(?:„[^“]+“|"[^"]+"|«[^»]+»)(?:\s+(?:№\s*)?\d+[\p{L}]?(?=\s|$|[,;.!—–]))?/u)?.[0];
+  const numbered = name.match(/^[\p{L}][\p{L}'-]*\s+(?:№\s*)?\d+[\p{L}]?(?=\s|$|[,;.!—–])/u)?.[0];
+  // With no explicit boundary, accept proper-name words, not arbitrary prose.
+  const properName = name.match(/^[\p{Lu}][\p{L}'-]*\.?(?:\s+[\p{Lu}][\p{L}'-]*\.?)*(?:\s+(?:№\s*)?\d+[\p{L}]?(?=\s|$|[,;.!—–]))?/u)?.[0];
+  const numericName = name.match(/^\d+[\p{L}]?(?=\s|$|[,;.!—–])/u)?.[0];
+  const streetName = quoted ?? numbered ?? properName ?? numericName;
+  return streetName ? `${designation[1]} ${streetName.trim()}` : null;
+}
+
 function streetFromUrl(value: string | null): string | null {
   const slug = value?.match(/obiava-[^-]+-(.*)$/i)?.[1];
   if (!slug) return null;
@@ -53,7 +67,7 @@ function streetFromUrl(value: string | null): string | null {
   if (!match) return null;
   const letters: Record<string, string> = { zh: 'ж', ch: 'ч', sh: 'ш', sht: 'щ', ts: 'ц', yu: 'ю', ya: 'я', ia: 'я', a: 'а', b: 'б', v: 'в', g: 'г', d: 'д', e: 'е', z: 'з', i: 'и', y: 'й', k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', r: 'р', s: 'с', t: 'т', u: 'у', f: 'ф', h: 'х', c: 'к'};
   const name = match[2].split('-').map(word => word.replace(/sht|zh|ch|sh|ts|yu|ya|ia|[a-z]/gi, token => letters[token.toLowerCase()] ?? token).replace(/^./, first => first.toLocaleUpperCase('bg'))).join(' ');
-  return name ? `${/^(?:boulevard|bul)$/i.test(match[1]) ? 'бул.' : 'ул.'} ${name}` : null;
+  return designatedStreet(`${/^(?:boulevard|bul)$/i.test(match[1]) ? 'бул.' : 'ул.'} ${name}`);
 }
 
 function parseItem(item: HTMLElement, base: string, categorySlug: string | null): ListingSummary {
@@ -89,9 +103,7 @@ function parseItem(item: HTMLElement, base: string, categorySlug: string | null)
   const photoCountMatch = photos?.match(/\d+/);
   const image = item.querySelector('img.pic');
   const pageUrl = absoluteHttps(titleNode?.getAttribute('href') ?? null, base);
-  const streetPart = info.split(',').map(part => part.trim()).find(part => /^(?:ул\.|бул\.|улица\b|булевард\b)\s*\S+/i.test(part));
-  const streetText = streetPart?.split(/\s+(?:[—–-]|описание(?=\s|$)|тих(?=\s|$)|спокоен(?=\s|$)|близо\s+до(?=\s|$)|в\s+близост\s+до(?=\s|$)|до(?=\s|$))/iu)[0];
-  const cardStreet = streetText?.match(/^(?:ул\.|бул\.|улица|булевард)\s*[\p{L}\d][\p{L}\d .'-]*$/iu)?.[0]?.trim();
+  const cardStreet = info.split(',').map(part => designatedStreet(part.trim())).find(street => street !== null);
   const street = cardStreet ?? streetFromUrl(pageUrl);
   const id = item.getAttribute('id')?.replace(/^ida/, '') || pageUrl?.match(/obiava-([^-/]+)/)?.[1] || null;
 

@@ -59,6 +59,46 @@ test('accepts only designated card street text, removes description prose, and f
   assert.equal(nonDesignation.listings[0].location.street, 'ул. Примерна');
 });
 
+test('street boundaries discard unlisted prose rather than matching description phrases', () => {
+  const cases = [
+    ['ул. Измислена 8 непосредствено до парк', 'ул. Измислена 8'],
+    ['ул. Измислена 8 Отлично разпределение и гледка', 'ул. Измислена 8'],
+    ['ул. Измислена непосредствено до парк', 'ул. Измислена'],
+    ['бул. Измислен Зелен Път предлага простор и светлина', 'бул. Измислен Зелен Път'],
+    ['улица „измислен зелен път“ Напълно обновен имот', 'улица „измислен зелен път“'],
+    ['ул. примерна 8 разполага с балкон', 'ул. примерна 8'],
+    ['булевард Измислен 8А разполага с балкон', 'булевард Измислен 8А'],
+  ];
+  for (const [info, street] of cases) {
+    const page = parseSearchResults(`<div class="item" id="ida-street"><a class="title" href="/obiava-street">Продава 2-СТАЕН</a><div class="info">82 кв.м, ${info}</div></div>`);
+    assert.equal(page.listings[0].location.street, street, info);
+  }
+});
+
+test('URL fallback stops at the street address number before arbitrary slug prose', () => {
+  const page = parseSearchResults('<div class="item" id="ida-url"><a class="title" href="/obiava-url-prodava-2-staen-ulitsa-izmislena-8-neposredstveno-do-park-grad-sofiya">Продава 2-СТАЕН</a><div class="info">близо до улица без име и парк</div></div>');
+  assert.equal(page.listings[0].location.street, 'ул. Измислена 8');
+  assert.equal(page.listings[0].location.precision, 'street');
+});
+
+test('does not reinterpret prose before a number as a street name', () => {
+  const page = parseSearchResults('<div class="item" id="ida-prose"><a class="title" href="/obiava-prose">Продава 2-СТАЕН</a><div class="info">ул. Измислена разполага с 8 помещения</div></div>');
+  assert.equal(page.listings[0].location.street, 'ул. Измислена');
+});
+
+test('preserves street initials, numeric names, quotes and multiword designations', () => {
+  const cases = [
+    ['ул. Измислена Примерна', 'ул. Измислена Примерна'],
+    ['бул. Акад. Измислен Пример 12 непосредствено до парк', 'бул. Акад. Измислен Пример 12'],
+    ['ул. 123 непосредствено до парк', 'ул. 123'],
+    ['ул. "Примерна улица" 8 Отлично изложение', 'ул. "Примерна улица" 8'],
+  ];
+  for (const [info, street] of cases) {
+    const page = parseSearchResults(`<div class="item" id="ida-street"><div class="info">${info}</div></div>`);
+    assert.equal(page.listings[0].location.street, street, info);
+  }
+});
+
 test('supports empty and final result pages and skips news or malformed items without listing ids', async () => {
   const empty = parseSearchResults(await fixture('search-empty.html'));
   assert.deepEqual(empty.listings, []);
