@@ -22,8 +22,8 @@ export function buildSearchUrls(criteria: SearchCriteria): { urls: string[]; cli
     for (const type of types) for (const district of districts) {
       const path = ['https://www.imot.bg/obiavi', criteria.deal === 'sale' ? 'prodazhbi' : 'naemi', 'grad-sofiya', district?.slug, type].filter(Boolean).join('/');
       const params = new URLSearchParams();
-      if (criteria.priceMin !== undefined) params.set('price_min', String(criteria.priceMin));
-      if (criteria.priceMax !== undefined) params.set('price_max', String(criteria.priceMax));
+      if (criteria.priceMin !== undefined) params.set('price_min', String(Math.ceil(criteria.priceMin)));
+      if (criteria.priceMax !== undefined) params.set('price_max', String(Math.floor(criteria.priceMax)));
       urls.push(`${path}${page > 1 ? `/p-${page}` : ''}${params.size ? `?${params}` : ''}`);
     }
   }

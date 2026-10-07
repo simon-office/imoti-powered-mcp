@@ -241,6 +241,22 @@ test('search_listings reports filter mismatches, client-filters results, and per
   } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('search_listings explains conservative whole-euro site rounding and retains original criteria', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-rounded-prices-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  const adapter = new FixtureAdapter([[/.*/, new URL('./fixtures/search-normal.html', import.meta.url)]]);
+  try {
+    await withClient(createServer({ storage, adapter }), async client => {
+      const result = await client.callTool({ name: 'search_listings', arguments: { criteria: { priceMin: 100.25, priceMax: 255.65, maxPages: 1 }, limit: 10 } });
+      assert.equal(result.structuredContent.query.criteria.priceMin, 100.25);
+      assert.equal(result.structuredContent.query.criteria.priceMax, 255.65);
+      assert.equal(new URL(result.structuredContent.query.urls[0]).searchParams.get('price_min'), '101');
+      assert.equal(new URL(result.structuredContent.query.urls[0]).searchParams.get('price_max'), '255');
+      assert.match(result.content[0].text, /site price bounds were conservatively rounded to whole euros/i);
+    });
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('listing filter mismatches retain listing id and source page URL', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'imoti-mismatch-trace-'));
   const storage = openStorage(join(directory, 'test.db'));

@@ -49,6 +49,21 @@ test('builds rent and no-district URLs', () => {
   assert.deepEqual(buildSearchUrls(searchCriteriaSchema.parse({ deal: 'rent', propertyTypes: ['dvustaen'], maxPages: 1 })).urls, ['https://www.imot.bg/obiavi/naemi/grad-sofiya/dvustaen']);
 });
 
+test('rounds fractional site price bounds conservatively while preserving whole euros and original client criteria', () => {
+  const criteria = searchCriteriaSchema.parse({ priceMin: 100.25, priceMax: 255.65, maxPages: 1 });
+  const built = buildSearchUrls(criteria);
+  const query = new URL(built.urls[0]).searchParams;
+  assert.equal(query.get('price_min'), '101');
+  assert.equal(query.get('price_max'), '255');
+  assert.equal(criteria.priceMin, 100.25);
+  assert.equal(criteria.priceMax, 255.65);
+  assert.deepEqual(verifyFilters(criteria, { listings: [{ price: { amount: 255.7 } }] }), { ok: false, mismatches: [{ filter: 'priceMax', expected: 255.65, observed: 255.7 }] });
+
+  const whole = new URL(buildSearchUrls(searchCriteriaSchema.parse({ priceMin: 100, priceMax: 255, maxPages: 1 })).urls[0]).searchParams;
+  assert.equal(whole.get('price_min'), '100');
+  assert.equal(whole.get('price_max'), '255');
+});
+
 test('accepts documented property slugs and Bulgarian labels, rejects unknown categories', () => {
   for (const type of propertyTypeCatalog) {
     assert.equal(searchCriteriaSchema.parse({ propertyTypes: [type.slug] }).propertyTypes[0], type.slug);
