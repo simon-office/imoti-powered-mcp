@@ -123,6 +123,44 @@ test('keeps expected construction milestones and completion wording separate fro
   assert.equal(historical.facts.expectedBuildStage, null);
 });
 
+test('does not mistake proximity for an expected stage and only expects stages above the reached one', async () => {
+  const fixtures = [
+    ['listing-stage-proximity-1.html', 'Акт 16 от 2019 г., в близост до много зеленина'],
+    ['listing-stage-deadline-2.html', 'АКТ 16 до края на годината!'],
+    ['listing-stage-sequence-3.html', 'Акт 14. Очакван Акт 15 до края на годината'],
+  ];
+  for (const [name, sentence] of fixtures) {
+    const html = await fixture(name);
+    assert.ok(html.includes(sentence));
+  }
+  const proximity = parseListing(await fixture(fixtures[0][0]));
+  assert.deepEqual(proximity.facts.newBuildStage, { value: 'Акт 16', source: fixtures[0][1] });
+  assert.equal(proximity.facts.expectedBuildStage, null);
+  const deadline = parseListing(await fixture(fixtures[1][0]));
+  assert.equal(deadline.facts.newBuildStage, null);
+  assert.deepEqual(deadline.facts.expectedBuildStage, { value: { stage: 'АКТ 16', date: 'края на годината!' }, source: fixtures[1][1] });
+  const sequence = parseListing(await fixture(fixtures[2][0]));
+  assert.deepEqual(sequence.facts.newBuildStage, { value: 'Акт 14', source: 'Акт 14.' });
+  assert.deepEqual(sequence.facts.expectedBuildStage, { value: { stage: 'Акт 15', date: 'края на годината' }, source: 'Очакван Акт 15 до края на годината' });
+});
+
+for (const [relation, name, id, reached] of [
+  ['equal to', 'listing-stage-equal-4.html', '1c100000000000004', 'Акт 15'],
+  ['below', 'listing-stage-lower-5.html', '1c100000000000005', 'Акт 16'],
+]) {
+  test(`suppresses an expected stage ${relation} the reached stage in a synthetic listing fixture`, async () => {
+    const html = await fixture(name);
+    const url = `https://www.imot.bg/obiava-${id}`;
+    const source = `Сградата е с ${reached}.`;
+    assert.ok(html.includes(`<link rel="canonical" href="${url}">`));
+    const result = parseListing(html, url);
+    assert.equal(result.id, id);
+    assert.equal(result.description, `${source} Очакван Акт 15 до края на годината.`);
+    assert.deepEqual(result.facts.newBuildStage, { value: reached, source });
+    assert.equal(result.facts.expectedBuildStage, null);
+  });
+}
+
 test('preserves contradictory private description and structured agency seller evidence', async () => {
   const result = parseListing(await fixture('listing-seller-conflict.html'));
   assert.deepEqual(result.seller, { kind: 'agency', name: null, conflict: true, evidence: { description: 'От ЧАСТНО ЛИЦЕ.', structured: 'Агенция' } });
