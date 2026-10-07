@@ -2,6 +2,27 @@
 
 ## Owner live check (stage 5: multilingual search coverage)
 
+### Final pets-policy live re-check (Simon)
+
+On Simon's machine, use the stage 5 plugin and live access to call `get_listing` for reported listing
+`2c178815702328727` and the second no-pets listing identified only in Simon's private final report. For each call, inspect
+the returned `facts.pets`: confirm `value` is `false` and that its evidence retains the complete source sentence from the
+listing. Report PASS only when both observed outputs meet both checks. Do not put the second ID, listing text, URL, title,
+address, contact details, or raw output in this repository or in a public report.
+
+Use this call for the reported listing; make the same call with the second listing ID from the private report:
+
+```json
+{"name":"get_listing","arguments":{"listingId":"2c178815702328727"}}
+```
+
+Use local synthetic/test coverage for the contrasting cases that are unsuitable to identify from live listings: an explicit
+pets-allowed sentence must produce `facts.pets.value: true` with its source sentence retained, while unclear wording must
+produce no pets fact (`facts.pets` absent/null), not an inferred policy. Run `npm test` in the checkout and report its
+observed result along with the two redacted live outcomes on SIM-1205. If a listing cannot be accessed or a protective
+screen/access failure occurs, stop; report that case as NOT CHECKED with the observed failure and never infer PASS.
+This procedure specifies checks only and does not claim they have already run.
+
 ### Targeted continuation and page-spread check
 
 On Simon's machine, issue the same broad sale/type criteria twice, first with `startPage: 1` and then with
