@@ -142,6 +142,11 @@ test('does not mistake proximity for an expected stage and only expects stages a
   const sequence = parseListing(await fixture(fixtures[2][0]));
   assert.deepEqual(sequence.facts.newBuildStage, { value: 'Акт 14', source: 'Акт 14.' });
   assert.deepEqual(sequence.facts.expectedBuildStage, { value: { stage: 'Акт 15', date: 'края на годината' }, source: 'Очакван Акт 15 до края на годината' });
+  for (const [reached, expected] of [['Акт 15', '15'], ['Акт 16', '15']]) {
+    const sentence = `Сградата е с ${reached}. Очакван Акт ${expected} до края на годината.`;
+    const result = parseListing(`<div class="adPrice"><div class="price"></div></div><div class="moreInfo"><div class="text">${sentence}</div></div>`);
+    assert.equal(result.facts.expectedBuildStage, null, `${reached} must suppress ${expected}`);
+  }
 });
 
 test('preserves contradictory private description and structured agency seller evidence', async () => {
