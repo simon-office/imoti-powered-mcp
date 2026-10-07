@@ -53,6 +53,8 @@ test('uses URL street segment for precision when the card location omits a stree
 test('accepts only designated card street text, removes description prose, and falls back to URL', () => {
   const description = parseSearchResults('<div class="item" id="ida-street"><a class="title" href="/obiava-street">Продава 2-СТАЕН<location>град София, Изток</location></a><div class="info">ул. Измислена 8 — тих район, изцяло обновен</div></div>');
   assert.equal(description.listings[0].location.street, 'ул. Измислена 8');
+  const prose = parseSearchResults('<div class="item" id="ida-prose"><a class="title" href="/obiava-prose">Продава 2-СТАЕН<location>град София, Изток</location></a><div class="info">ул. Измислена 8 близо до парк</div></div>');
+  assert.equal(prose.listings[0].location.street, 'ул. Измислена 8');
   const nonDesignation = parseSearchResults('<div class="item" id="ida-url"><a class="title" href="/obiava-url-prodava-2-staen-ulitsa-primerna-grad-sofiya">Продава 2-СТАЕН<location>град София, Изток</location></a><div class="info">близо до улица без име и парк</div></div>');
   assert.equal(nonDesignation.listings[0].location.street, 'ул. Примерна');
 });
