@@ -39,6 +39,30 @@ evidence-based-facts guidance. In the same owner session, check each case below 
 each as **PASS**, **FAIL**, or **NOT CHECKED**, with brief redacted evidence. A case is not a pass merely because it was
 not exercised; explain unavailable inputs or runtime checks as not checked.
 
+### Final build-stage and price-rounding re-check
+
+Using synthetic-style examples or matching live results, call `search_listings` with a short plain-language request in
+English, Bulgarian, and Russian. Report the observed extracted facts, the actual search filters and the build-stage
+decision for each language; do not infer a stage from an expected milestone. Keep examples synthetic and do not claim
+these live checks have already been run.
+
+Check each construction wording independently and compare the structured expected and reached-stage fields:
+
+- «ПРЕД АКТ 15» followed by a future Act 16 milestone: it is an expected/future stage, not reached Act 16.
+- «Сградата е с Акт 16»: report reached Act 16.
+- «Сградата е завършена през 2026 г., има Акт 16 и е готова за нанасяне»: treat this complete 2026 completion wording as
+  reached Act 16, while preserving its completion-year evidence.
+- «Акт 16 от 2019»: report reached Act 16 from 2019 and no expected stage.
+
+For the 500 BGN rent request, confirm the normalized maximum is €255.65 (500 ÷ 1.95583), while the site filter is sent
+as whole-euro `price_max=255`. This conservative rounding means minimums round upward and maximums downward, so site-side
+rounding cannot admit prices outside the user's requested range. The result text should explain this conservative rounding,
+and the original client criterion should remain distinguishable from the rounded site filter.
+
+Ask Simon to run a short plain-language request in English, Bulgarian, and Russian, then report the observed results and
+the stage decision. Record missing/unavailable cases as not checked; this procedure is not evidence of a completed live
+re-check.
+
 - Search for Izgrev and confirm the resolved district points to the correct ЖК feature, not a similarly named map feature.
 - Check an ambiguous same-name ЖК candidate that is distant from the requested area: it must return no coordinates; confirm
   adjoining features that are appropriate to merge still merge. Record whether each candidate was correctly resolved or
