@@ -91,6 +91,43 @@ test('resolves synthetic duplicate Изгрев polygon features deterministical
   assert.notEqual(result.source, 'unresolved');
 });
 
+test('prefers ЖК over distant same-name classes but preserves nearby adjoining groups', () => {
+  const provenance = { name: 'Synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const feature = (name, latitude, longitude) => ({ name, latitude, longitude, geometry: { type: 'MultiPolygon', coordinates: [[[[longitude - 0.001, latitude - 0.001], [longitude + 0.001, latitude - 0.001], [longitude + 0.001, latitude + 0.001], [longitude - 0.001, latitude + 0.001], [longitude - 0.001, latitude - 0.001]]]] }, provenance });
+  const far = resolveMunicipalLocation({ id: 'far-izgrev', location: { city: 'Sofia', district: 'Изгрев' } }, { addresses: [], districts: [
+    feature('ЖК. ИЗГРЕВ', 42.7, 23.3), feature('КВ. ИЗГРЕВ', 42.73, 23.3), feature('В.З. ИЗГРЕВ', 42.76, 23.3),
+  ] });
+  assert.deepEqual(far.coordinates, { latitude: 42.7, longitude: 23.3 });
+  const adjoining = resolveMunicipalLocation({ id: 'near-izgrev', location: { city: 'Sofia', district: 'Изгрев' } }, { addresses: [], districts: [
+    feature('КВ. ИЗГРЕВ', 42.7, 23.3), feature('ЖК. ИЗГРЕВ', 42.705, 23.3),
+  ] });
+  assert.ok(adjoining.coordinates.latitude > 42.7 && adjoining.coordinates.latitude < 42.705, 'nearby classes are merged into one location');
+  const explicit = resolveMunicipalLocation({ id: 'explicit-kv', location: { city: 'Sofia', district: 'КВ. Изгрев' } }, { addresses: [], districts: [
+    feature('КВ. ИЗГРЕВ', 42.7, 23.3), feature('ЖК. ИЗГРЕВ', 42.705, 23.3),
+  ] });
+  assert.deepEqual(explicit.coordinates, { latitude: 42.7, longitude: 23.3 });
+});
+
+test('leaves distant equally ranked В.З. candidates unresolved and honors an explicit feature prefix', () => {
+  const provenance = { name: 'Synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const feature = (name, latitude) => ({ name, latitude, longitude: 23.3, geometry: { type: 'MultiPolygon', coordinates: [] }, provenance });
+  const datasets = { addresses: [], districts: [feature('В.З. ПРИМЕР', 42.7), feature('В.З. ПРИМЕР', 42.74)] };
+  const unresolved = resolveMunicipalLocation({ id: 'ambiguous-estates', location: { city: 'Sofia', district: 'Пример' } }, datasets);
+  assert.equal(unresolved.coordinates, undefined);
+  assert.match(unresolved.uncertainty.join(' '), /ambiguous/i);
+  const explicit = resolveMunicipalLocation({ id: 'explicit-class', location: { city: 'Sofia', district: 'В.З. Пример' } }, datasets);
+  assert.equal(explicit.coordinates, undefined);
+  assert.match(explicit.uncertainty.join(' '), /ambiguous/i);
+});
+
+test('does not merge a chain of features whose endpoints exceed the distance bound', () => {
+  const provenance = { name: 'Synthetic districts', sourceUrl: 'https://fixture.test/districts', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  const districts = [42.71, 42.7, 42.72].map(latitude => ({ name: 'ЖК. ЦЕП', latitude, longitude: 23.3, geometry: { type: 'MultiPolygon', coordinates: [[[[23.299, latitude - 0.001], [23.301, latitude - 0.001], [23.301, latitude + 0.001], [23.299, latitude + 0.001], [23.299, latitude - 0.001]]]] }, provenance }));
+  const result = resolveMunicipalLocation({ id: 'chain', location: { city: 'Sofia', district: 'Цеп' } }, { addresses: [], districts });
+  assert.equal(result.coordinates, undefined);
+  assert.match(result.uncertainty.join(' '), /ambiguous/i);
+});
+
 test('prefers estate features to similarly named parks and uses district address points without a polygon', () => {
   const provenance = { name: 'Synthetic municipal data', sourceUrl: 'https://fixture.test/data', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic' };
   const result = resolveMunicipalLocation({ id: 'estate', location: { city: 'Sofia', district: 'Измислен' } }, {
@@ -349,6 +386,25 @@ test('area_context reports unavailable transit and features when no Sofia source
     assert.equal(context.municipalFeatures.status, 'unavailable');
     assert.deepEqual(context.sourceMetadata, { stops: [], schedules: [], municipalFeatures: [], routing: [], municipalLocations: [] });
   } finally { await client.close(); await server.close(); storage.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('area_context distinguishes listed nearby stops from unavailable schedules', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'imoti-area-no-schedules-'));
+  const storage = openStorage(join(directory, 'test.db'));
+  storage.upsertListing({ id: 'stops-no-schedules', location: { city: 'Sofia', coordinates: { latitude: 42.7, longitude: 23.3 }, precision: 'exact', propertySpecificEvidence: true } });
+  const provenance = { name: 'Synthetic GTFS', sourceUrl: 'https://fixture.test/gtfs', datasetDate: 'synthetic', checkedAt: '2026-01-02', reuseTerms: 'Synthetic fixture' };
+  try {
+    const server = createServer({ storage, sofiaData: new FixtureSofiaDataAdapter({ stops: [{ id: 'listed-stop', name: 'Imaginary Stop', latitude: 42.701, longitude: 23.3, provenance }] }) });
+    const client = new Client({ name: 'area-no-schedules-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = ClientTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    try {
+      const result = await client.callTool({ name: 'area_context', arguments: { listingId: 'stops-no-schedules' } });
+      assert.equal(result.structuredContent.nearbyStops.status, 'available');
+      assert.match(result.structuredContent.schedules.reason, /not joined to nearby stops/i);
+      assert.doesNotMatch(result.structuredContent.schedules.reason, /nearby stops are not established/i);
+    } finally { await client.close(); await server.close(); }
+  } finally { storage.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('area_context reports over-age municipal cache after failed refresh in provenance and explanation', async () => {

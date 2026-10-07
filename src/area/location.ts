@@ -47,24 +47,32 @@ export function resolveMunicipalLocation(listing: Listing, datasets: MunicipalLo
   }
   if (base.district) {
     const wanted = normalize(base.district);
-    const matches = datasets.districts.filter(row => normalize(row.name.replace(/^(?:жк\.?|кв\.?|в\.з\.?)\s*/i, '')) === wanted && !/^в\.з\.?/i.test(row.name));
-    const parkMatches = datasets.districts.filter(row => /^парк\s+/i.test(row.name) && normalize(row.name.replace(/^парк\s+/i, '')) === wanted);
-    const estateMatches = matches.filter(row => /^жк\.?/i.test(row.name));
-    const selected = parkMatches.length && estateMatches.length === 1 ? estateMatches : matches;
-    if (selected.length > 1 && selected.every(row => row.geometry) && selected.every(row => /^(?:жк\.?|кв\.?)/i.test(row.name))) {
+    const nameWithoutPrefix = base.district.replace(/^(?:жк\.?|кв\.?|в\.з\.?)\s*/i, '');
+    const prefix = base.district.match(/^(жк\.?|кв\.?|в\.з\.?)(?:\s|$)/i)?.[1]?.replace(/\.$/, '').toLocaleUpperCase('bg-BG');
+    const featureClass = (name: string) => name.match(/^(жк\.?|кв\.?|в\.з\.?)\s*/i)?.[1]?.replace(/\.$/, '').toLocaleUpperCase('bg-BG') ?? 'OTHER';
+    const matches = datasets.districts.filter(row => normalize(row.name.replace(/^(?:жк\.?|кв\.?|в\.з\.?)\s*/i, '')) === normalize(nameWithoutPrefix));
+    const rank = (row: typeof matches[number]) => ({ ЖК: 0, КВ: 1, OTHER: 2, 'В.З': 2 }[featureClass(row.name)] ?? 2);
+    let selected = prefix ? matches.filter(row => featureClass(row.name) === prefix) : matches;
+    const adjoining = selected.length > 1 && featuresWithinDistance(selected, 1500);
+    if (!prefix && !adjoining && selected.length > 1) {
+      const preferred = Math.min(...selected.map(rank));
+      selected = selected.filter(row => rank(row) === preferred);
+    }
+    if (selected.length > 1 && featuresWithinDistance(selected, 1500) && selected.every(row => row.geometry)) {
       const centroid = weightedPolygonCentroid(selected.map(row => row.geometry!.coordinates));
       if (centroid) return { ...base, coordinates: centroid, precision: 'neighbourhood', source: selected[0].provenance.name, provenance: selected[0].provenance,
         uncertainty: [`Coordinates are the area-weighted centroid of ${selected.length} same-name neighbourhood polygons; they do not identify the property building.`] };
     }
     if (selected.length === 1 && selected[0].geometry) return { ...base, coordinates: { latitude: selected[0].latitude, longitude: selected[0].longitude }, precision: 'neighbourhood', source: selected[0].provenance.name, provenance: selected[0].provenance,
       uncertainty: [selected[0].geometry ? 'Coordinates are the centroid of the municipal neighbourhood polygon; they do not identify the property building.' : 'Municipal neighbourhood polygon geometry is unavailable; the supplied neighbourhood point is approximate and does not identify the property building.'] };
-    if ((!selected.length || (selected.length === 1 && !selected[0].geometry)) && (!matches.length || (matches.length === 1 && !matches[0].geometry))) {
+    if (!prefix && (!matches.length || selected.length === 1 && !selected[0].geometry)) {
       const points = datasets.addresses.filter(row => normalize(row.region) === wanted);
       if (points.length) return { ...base, coordinates: { latitude: mean(points.map(row => row.latitude)), longitude: mean(points.map(row => row.longitude)) }, precision: 'neighbourhood', source: points[0].provenance.name, provenance: points[0].provenance,
         uncertainty: [`District polygon unavailable; coordinates are the mean of ${points.length} municipal address points (approximate neighbourhood precision), not an exact property location. Source: ${points[0].provenance.name}.`] };
     }
     if (selected.length === 1) return { ...base, coordinates: { latitude: selected[0].latitude, longitude: selected[0].longitude }, precision: 'neighbourhood', source: selected[0].provenance.name, provenance: selected[0].provenance,
       uncertainty: ['Municipal neighbourhood polygon geometry is unavailable; no matching municipal district address points were available, so the supplied neighbourhood point is approximate and does not identify the property building.'] };
+    if (selected.length > 1) return { ...base, coordinates: undefined, source: 'unresolved', uncertainty: [...base.uncertainty, 'Multiple distant same-name municipal features remain ambiguous; no coordinates were selected.'] };
   }
   return { ...base, coordinates: undefined, source: 'unresolved', uncertainty: [...base.uncertainty, 'No unambiguous match was found in the municipal address or neighbourhood datasets.'] };
 }
@@ -107,6 +115,9 @@ function distanceMeters(a: { latitude: number; longitude: number }, b: { latitud
   const radians = Math.PI / 180, dLat = (b.latitude - a.latitude) * radians, dLon = (b.longitude - a.longitude) * radians;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * radians) * Math.cos(b.latitude * radians) * Math.sin(dLon / 2) ** 2;
   return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+function featuresWithinDistance(features: Array<{ latitude: number; longitude: number }>, maximumMeters: number): boolean {
+  return features.every((feature, index) => features.slice(index + 1).every(other => distanceMeters(feature, other) <= maximumMeters));
 }
 
 export function resolveListingLocation(listing: Listing): ResolvedLocation {

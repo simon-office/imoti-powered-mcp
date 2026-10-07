@@ -50,6 +50,13 @@ test('uses URL street segment for precision when the card location omits a stree
   assert.equal(page.listings[0].location.precision, 'street');
 });
 
+test('accepts only designated card street text, removes description prose, and falls back to URL', () => {
+  const description = parseSearchResults('<div class="item" id="ida-street"><a class="title" href="/obiava-street">Продава 2-СТАЕН<location>град София, Изток</location></a><div class="info">ул. Измислена 8 — тих район, изцяло обновен</div></div>');
+  assert.equal(description.listings[0].location.street, 'ул. Измислена 8');
+  const nonDesignation = parseSearchResults('<div class="item" id="ida-url"><a class="title" href="/obiava-url-prodava-2-staen-ulitsa-primerna-grad-sofiya">Продава 2-СТАЕН<location>град София, Изток</location></a><div class="info">близо до улица без име и парк</div></div>');
+  assert.equal(nonDesignation.listings[0].location.street, 'ул. Примерна');
+});
+
 test('supports empty and final result pages and skips news or malformed items without listing ids', async () => {
   const empty = parseSearchResults(await fixture('search-empty.html'));
   assert.deepEqual(empty.listings, []);

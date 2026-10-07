@@ -89,7 +89,9 @@ function parseItem(item: HTMLElement, base: string, categorySlug: string | null)
   const photoCountMatch = photos?.match(/\d+/);
   const image = item.querySelector('img.pic');
   const pageUrl = absoluteHttps(titleNode?.getAttribute('href') ?? null, base);
-  const street = info.match(/(?:ул\.|бул\.|улица|булевард)\s*[^,]+/i)?.[0]?.trim() ?? streetFromUrl(pageUrl);
+  const streetPart = info.split(',').map(part => part.trim()).find(part => /^(?:ул\.|бул\.|улица\b|булевард\b)\s*\S+/i.test(part));
+  const cardStreet = streetPart?.match(/^(?:ул\.|бул\.|улица|булевард)\s*[\p{L}\d][\p{L}\d .'-]*?(?=\s+(?:[-–—]|описание\b|тих\b|спокоен\b)|$)/iu)?.[0]?.trim();
+  const street = cardStreet ?? streetFromUrl(pageUrl);
   const id = item.getAttribute('id')?.replace(/^ida/, '') || pageUrl?.match(/obiava-([^-/]+)/)?.[1] || null;
 
   return {
