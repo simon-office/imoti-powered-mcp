@@ -58,6 +58,14 @@ function sourcedFacts(description: string | null, vatNote: string | null): Listi
     const source = sentences.find(sentence => pattern.test(sentence) && accept(sentence));
     return source ? { value: value(source), source } : null;
   };
+  const newBuildStage = pick(/акт\s*(?:14|15|16)|в процес на строителство|строи се|в строеж/i, sentence => sentence.match(/пред\s+акт\s*(?:14|15|16)/i) ? `before ${sentence.match(/акт\s*(?:14|15|16)/i)![0].replace(/\s+/g, ' ')}` : sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction', sentence => !/(?:очакван|предстоящ|предстои|до\s+(?:акт|края|началото|средата)|ще\s+бъде|планиран|прогноз)/i.test(sentence) && !/схем[аи].*плащ/i.test(sentence));
+  const expectedBuildStage = pick(/(?:очакван|предстоящ|предстои|до\s+(?:акт|края|началото|средата)|ще\s+бъде|планиран|прогноз).*акт\s*(?:14|15|16)|акт\s*(?:14|15|16).*(?:очакван|предстоящ|предстои|до\s+(?:акт|края|началото|средата)|ще\s+бъде|планиран|прогноз)|пред\s+акт\s*(?:14|15|16).*завършен/i, sentence => {
+    const stage = sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction';
+    const date = sentence.match(/(?:до\s+|завършен[ао]?\s+|въведен[ао]?\s+|акт\s*(?:14|15|16)\s*[:,–-]\s*)(.+)$/i)?.[1]?.trim() ?? null;
+    return { stage, date };
+  });
+  const stageNumber = (fact: any) => Number(fact?.value?.stage?.match(/14|15|16/)?.[0] ?? fact?.value?.match(/14|15|16/)?.[0] ?? 0);
+  const orderedExpectedBuildStage = expectedBuildStage && stageNumber(expectedBuildStage) > stageNumber(newBuildStage) ? expectedBuildStage : null;
   return {
     furnished: pick(/обзаведен[ао]?|мебелиран[ао]?|необзаведен[ао]?|без мебели/i, sentence => !/необзаведен[ао]?|без мебели/i.test(sentence)),
     pets: pick(/домашни любимци|животни/i, sentence => !/(?:не\s+(?:се\s+)?(?:допускат|разрешават)|не допуска|забранени|без)\s+(?:домашни любимци|животни)/i.test(sentence)),
@@ -65,11 +73,7 @@ function sourcedFacts(description: string | null, vatNote: string | null): Listi
      commission: pick(/комисион/i, sentence => /без\s+комисион/i.test(sentence) ? false : sentence.replace(/[.!?]+$/, '').replace(/^.*?комисион[а-яА-Я]*\s*(?:е|:|от|в размер на)?\s*/i, '').trim(), sentence => !/(?:предлага|съдействие|услуга|агенцията|работим)/i.test(sentence) && (/без\s+комисион/i.test(sentence) || /комисион\w*.*(?:\d|без|няма|не се|не дължи|%|€|евро|лв)/i.test(sentence))),
     utilities: pick(/(?:ток|електроенерг|вода|отоплен|комуналн)/i, undefined, sentence => /(?:има|снабден|включен|отделно|заплащ|такса|централн|налич)/i.test(sentence)),
      newBuildStage: pick(/акт\s*(?:14|15|16)|в процес на строителство|строи се|в строеж/i, sentence => sentence.match(/пред\s+акт\s*(?:14|15|16)/i) ? `before ${sentence.match(/акт\s*(?:14|15|16)/i)![0].replace(/\s+/g, ' ')}` : sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction', sentence => !/(?:очакван|предстоящ|предстои|до\s+(?:края|началото|средата|акт)|ще\s+бъде|планиран|прогноз)/i.test(sentence) && !/схем[аи].*плащ/i.test(sentence)),
-     expectedBuildStage: pick(/(?:очакван|предстоящ|предстои|до\s+(?:акт|края|началото|средата)|ще\s+бъде|планиран|прогноз).*акт\s*(?:14|15|16)|акт\s*(?:14|15|16).*(?:очакван|предстоящ|предстои|до\s+|ще\s+бъде|планиран|прогноз)|пред\s+акт\s*(?:14|15|16).*завършен/i, sentence => {
-       const stage = sentence.match(/акт\s*(?:14|15|16)/i)?.[0]?.replace(/\s+/g, ' ') ?? 'under construction';
-       const date = sentence.match(/(?:до\s+|завършен[ао]?\s+|въведен[ао]?\s+|акт\s*(?:14|15|16)\s*[:,–-]\s*)(.+)$/i)?.[1]?.trim() ?? null;
-       return { stage, date };
-     }),
+      expectedBuildStage: orderedExpectedBuildStage,
     auction: pick(/(?:^|[^а-я])(?:търг(?:а|ове|ов)?|наддаван[а-я]*|аукцион[а-я]*)(?:$|[^а-я])|публична продан/i, () => true, sentence => !/(?:не\s+(?:е\s+)?|няма\s+|без\s+|не\s+(?:се\s+)?(?:продава|предлага|извършва).*?)(?:публична\s+продан|търг|аукцион|наддаван)/i.test(sentence) && !/(?:не\s+(?:е\s+)?свързан[а-я]*\s+с|няма\s+отношение\s+към|не\s+се\s+отнася\s+до)/i.test(sentence)),
     vat: vatNote ? { value: vatNote, source: vatNote } : pick(/ддс|vat/i),
      firstMonthRent: pick(/(?:първ(?:и|ия|ият) месец|първия месец).*(?:наем|€|евро|лв)|(?:наем|€|евро|лв).*(?:първ(?:и|ия|ият) месец)/i, sentence => sentence),
