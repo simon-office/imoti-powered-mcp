@@ -32,6 +32,32 @@ the skill gives useful guidance for requests in English, Bulgarian, and Russian.
 date, redacted results, mismatches, errors, unavailable checks, and remaining questions; do not report unrun checks as
 passed or include identifying listing details.
 
+### Final Stage 5 targeted re-checks
+
+Keep the nine plain-language requests below verbatim and retain the final search, photo, comparison, area-context, and
+evidence-based-facts guidance. In the same owner session, check each case below against the actual tool output and report
+each as **PASS**, **FAIL**, or **NOT CHECKED**, with brief redacted evidence. A case is not a pass merely because it was
+not exercised; explain unavailable inputs or runtime checks as not checked.
+
+- Search for Izgrev and confirm the resolved district points to the correct ЖК feature, not a similarly named map feature.
+- Check an ambiguous same-name ЖК candidate that is distant from the requested area: it must return no coordinates; confirm
+  adjoining features that are appropriate to merge still merge. Record whether each candidate was correctly resolved or
+  deliberately left without coordinates.
+- When transit schedule data is unavailable, confirm the response says schedule/unavailability clearly while retaining
+  the known stops; absence of a schedule must not erase stop data.
+- Check street extraction on a result with description prose after the address: street extraction must exclude that trailing
+  description prose rather than extending the street value.
+- On a promotional rental result, compare promotional monthly rent, promotion duration, and regular monthly rent as
+  separate values; confirm the output does not substitute one for another.
+- Compare expected Act 16 completion with reached/actual Act 16 status and ensure the two are reported distinctly.
+- Check a seller-source conflict and confirm the competing sources are surfaced as a conflict, not silently reconciled.
+- On mixed result pages without a page URL type, verify business and industrial cards still receive the correct card URL
+  typing from their card/category evidence, and verify the business subtype «БАНКОВ ОФИС» is preserved.
+
+For every item, state the outcome and a short redacted reason. Do not include listing IDs, URLs, titles, addresses, seller
+contacts, raw page content, photos, or copied listing text in the report. Continue to report the nine request rounds and
+the existing search, photo, comparison, area-context, and facts checks independently; targeted cases do not replace them.
+
 Run these nine plain-language requests in separate turns on Simon's machine with the stage 5 plugin and live site access.
 These checks are not results: record only what the tools actually return. Use the requests verbatim, including their
 language. There are five purchases and four rentals (three English, three Bulgarian, three Russian).

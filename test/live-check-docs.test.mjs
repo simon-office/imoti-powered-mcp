@@ -158,6 +158,26 @@ test('stage 5 update documents area and reconciliation findings plus photo/fact 
   assert.match(readme, /stage 5 implementation updated; Simon's owner live check pending/i);
 });
 
+test('stage 5 owner re-check documents remaining feature, schedule, extraction, and listing cases', async () => {
+  const doc = await read('docs/live-check.md');
+  const stage5 = doc;
+  for (const phrase of [
+    /Izgrev[\s\S]*?correct ЖК feature/i,
+    /ambiguous same-name[\s\S]*?distant[\s\S]*?no coordinates[\s\S]*?adjoining features[\s\S]*?still merge/i,
+    /schedule data is unavailable[\s\S]*?retaining[\s\S]*?stops/i,
+    /description prose[\s\S]*?street extraction[\s\S]*?trailing/i,
+    /promotional monthly rent[\s\S]*?duration[\s\S]*?regular (?:monthly )?rent/i,
+    /expected Act 16[\s\S]*?reached\/actual Act 16/i,
+    /seller-source conflict/i,
+    /mixed result pages/i,
+    /without a page URL type[\s\S]*?business and industrial cards/i,
+    /card URL[\s\S]*?typing/i,
+    /БАНКОВ ОФИС/i,
+    /pass[\s\S]*?fail[\s\S]*?not checked/i,
+  ]) assert.match(stage5, phrase);
+  assert.match(stage5, /Keep the nine plain-language requests[\s\S]*?search[\s\S]*?photo[\s\S]*?comparison[\s\S]*?area[\s\S]*?facts/i);
+});
+
 test('stage 4 owner check documents reproducible commands, criteria, reporting, and Simon hand-off', async () => {
   const doc = await read('docs/live-check.md');
   const readme = await read('README.md');
