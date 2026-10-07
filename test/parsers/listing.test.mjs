@@ -181,6 +181,23 @@ test('recognizes all grammatical furnished forms, explicit pet prohibitions, and
   }
 });
 
+test('extracts explicit pets policies with correct polarity and the complete synthetic source sentence', async () => {
+  const cases = [
+    ['listing-pets-no-animals.html', 'В жилището се отдава без домашни животни.', false],
+    ['listing-pets-no-pets.html', 'Без домашни любимци.', false],
+    ['listing-pets-not-allowed.html', 'Не се допускат животни.', false],
+    ['listing-pets-forbidden.html', 'Забранени домашни любимци.', false],
+    ['listing-pets-not-accepted.html', 'Домашни любимци не се приемат.', false],
+    ['listing-pets-allowed.html', 'Допускат се домашни любимци.', true],
+    ['listing-pets-mixed-punctuation.html', 'Без домашни любимци и без пушене в помещенията!!!', false],
+  ];
+  for (const [name, sentence, value] of cases) {
+    const result = parseListing(await fixture(name));
+    assert.deepEqual(result.facts.pets, { value, source: sentence }, name);
+  }
+  assert.equal(parseListing(await fixture('listing-street.html')).facts.pets, null);
+});
+
 test('sanitizes phone and email spans without changing surrounding text or line breaks', () => {
   assert.equal(sanitizeListingText('Условие\nОбади се 0888000000 или fake@example.invalid!'), 'Условие\nОбади се [redacted] или [redacted]!');
   assert.equal(sanitizeListingText('Обади се +359 88 123 4567 за оглед.'), 'Обади се [redacted] за оглед.');
