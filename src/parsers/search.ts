@@ -81,13 +81,21 @@ function parseItem(item: HTMLElement, base: string, categorySlug: string | null)
   const amount = priceText ? Number(priceText.replace(/[^\d]/g, '')) : NaN;
   const priceCurrency = priceText?.includes('€') ? 'EUR' : priceText?.includes('$') ? 'USD' : priceText?.includes('лв') ? 'BGN' : null;
   const titleTypeLabel = title?.replace(/^(?:продава|дава под наем)\s*/i, '').trim() ?? '';
+  const listingUrl = absoluteHttps(titleNode?.getAttribute('href') ?? null, base);
+  const listingPath = listingUrl ? new URL(listingUrl).pathname : '';
+  const listingSlug = listingPath.match(/obiava-[^-]+-(.+)$/i)?.[1] ?? '';
+  const urlCategoryType = propertyTypeCatalog
+    .filter(type => listingSlug.endsWith(`-${type.slug}`) || listingSlug === type.slug)
+    .sort((a, b) => b.slug.length - a.slug.length)[0];
   const categoryType = categorySlug ? propertyTypeCatalog.find(type => type.slug === categorySlug) : undefined;
   const matchedType = propertyTypeCatalog
     .flatMap(type => [type.cardLabel, ...(type.slug === 'promishleno-pomeshtenie' ? ['ПРОМИШЛЕНО ПОМЕЩЕНИЕ'] : []), ...(type.slug === 'garazh-parkomyasto' ? ['ГАРАЖ', 'ПАРКОМЯСТО'] : [])]
       .map(label => ({ type, label })))
     .sort((a, b) => b.label.length - a.label.length)
     .find(({ label }) => title?.toLocaleLowerCase().includes(label.toLocaleLowerCase()));
-  const typeMatch = categoryType
+  const typeMatch = urlCategoryType
+    ? { type: urlCategoryType, label: titleTypeLabel || urlCategoryType.cardLabel }
+    : categoryType
     ? { type: categoryType, label: titleTypeLabel || categoryType.cardLabel }
     : matchedType;
   const floorMatch = info.match(/(Партер|\d+\s*[-–]?\s*(?:ви|ри|ти|ми))(?:\s*ет\.?)*\s*(?:от\s*(\d+))?/i);

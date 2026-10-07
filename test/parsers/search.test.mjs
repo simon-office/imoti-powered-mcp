@@ -190,3 +190,12 @@ test('every recognized URL category overrides a conflicting card label', async (
   const fallback = parseSearchResults(html, 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya/iztok/p-2');
   assert.deepEqual(fallback.listings[0].propertyType, { slug: 'sklad', label: 'СКЛАД', rooms: null });
 });
+
+test('uses each mixed-result card URL category before title matching', async () => {
+  const html = await fixture('search-mixed-card-categories.html');
+  const page = parseSearchResults(html, 'https://www.imot.bg/obiavi/prodazhbi/grad-sofiya');
+  assert.deepEqual(page.listings.map(({ propertyType }) => propertyType), [
+    { slug: 'biznes-imot', label: 'БАНКОВ ОФИС', rooms: null },
+    { slug: 'promishleno-pomeshtenie', label: 'ПРОМИШЛЕНО ПОМЕЩЕНИЕ', rooms: null },
+  ]);
+});
