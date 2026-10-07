@@ -12,6 +12,26 @@ with `propertyTypes: ["ednostaen", "dvustaen"]` and confirm both requested types
 pages are reported. Use only the owner's live session. In the report, record redacted aggregate page numbers, returned
 count, and type counts; omit listing IDs, URLs, titles, addresses, contacts, raw responses, screenshots, and page text.
 
+### Property-type, omission, photo, and listing reconciliation
+
+Run separate searches on Simon's live session for the `biznes-imot` and `promishleno-pomeshtenie` categories. Include
+the business-card subtype titled «БАНКОВ ОФИС». For each returned card, compare its property-type slug and displayed
+label with the selected category and the listing title; report mismatches as unresolved rather than inferring a match from
+the title alone.
+
+Run a search with a property-type filter that returns omitted cards. Record the returned omitted-card count and compare it
+with the output. If zero results were returned, say that filters were not verified; an empty result is not evidence that
+the requested filters worked.
+
+Inspect standard 800×600 listing photos and confirm they do not receive a small-dimensions warning. For a returned
+listing, call `get_listing` and confirm `get_listing.propertyType.slug` agrees with the property-type slug reported by
+`search_listings`. Record only redacted counts and whether each comparison agreed.
+
+For the final multilingual rounds, retain the checks for evidence-based facts and area context below, and verify that
+the skill gives useful guidance for requests in English, Bulgarian, and Russian. Report commands/tool calls, runtime and
+date, redacted results, mismatches, errors, unavailable checks, and remaining questions; do not report unrun checks as
+passed or include identifying listing details.
+
 Run these nine plain-language requests in separate turns on Simon's machine with the stage 5 plugin and live site access.
 These checks are not results: record only what the tools actually return. Use the requests verbatim, including their
 language. There are five purchases and four rentals (three English, three Bulgarian, three Russian).

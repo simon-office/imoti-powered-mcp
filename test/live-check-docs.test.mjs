@@ -133,6 +133,17 @@ test('stage 5 gives exact runnable calls and concrete result comparisons for eve
   assert.match(stage5, /destination[\s\S]*?Business Park Sofia[\s\S]*?straight-line/);
 });
 
+test('stage 5 live re-check covers Bulgarian category/property types and filter evidence', async () => {
+  const doc = await read('docs/live-check.md');
+  const stage5 = doc.split('## Stage 4:')[0];
+  assert.match(stage5, /biznes-imot[\s\S]*?promishleno-pomeshtenie[\s\S]*?БАНКОВ ОФИС/i);
+  assert.match(stage5, /property-type slug and displayed[\s\S]*?category[\s\S]*?title/i);
+  assert.match(stage5, /omitted-card count[\s\S]*?zero results[\s\S]*?filters were not verified/i);
+  assert.match(stage5, /800×600[\s\S]*?small-dimensions warning[\s\S]*?get_listing\.propertyType\.slug/i);
+  assert.match(stage5, /evidence-based facts[\s\S]*?area context[\s\S]*?English[\s\S]*?Bulgarian[\s\S]*?Russian/i);
+  assert.match(stage5, /report[\s\S]*?redacted/i);
+});
+
 test('README reports stage 5 prepared pending Simon owner live check', async () => {
   const readme = await read('README.md');
   assert.match(readme, /Status: stage 5 implementation updated; Simon's owner live check pending/i);
