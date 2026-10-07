@@ -559,7 +559,9 @@ export function createServer(deps: ServerDependencies = {}): McpServer {
         const affected = truncated ? ` Coverage truncated at configured ${criteria.maxPages}-page cap${excludedPromoted.length ? `; promoted cards consumed page coverage (${excludedPromoted.length} excluded)` : ''}.` : '';
         const omissionText = omittedByTypeFilter ? ` ${omittedByTypeFilter} cards were omitted by the property-type filter.` : '';
         const filterText = results.length === 0 && omittedByTypeFilter > 0 ? 'filters need review' : `filters ${output.verification.ok ? 'verified' : 'need review'}`;
-        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}${knownTotal === null || knownTotal === undefined ? '' : ` returned out of ${knownTotal} known total`}${truncated ? ' (truncated)' : ''}; ${filterText}.${omissionText}${affected}${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
+        const fractionalPriceBounds = [criteria.priceMin, criteria.priceMax].some(value => value !== undefined && !Number.isInteger(value));
+        const roundingText = fractionalPriceBounds ? ' Site price bounds were conservatively rounded to whole euros; results are filtered against your original numeric criteria.' : '';
+        return { structuredContent: output, content: [{ type: 'text' as const, text: `Found ${results.length} listing${results.length === 1 ? '' : 's'}${knownTotal === null || knownTotal === undefined ? '' : ` returned out of ${knownTotal} known total`}${truncated ? ' (truncated)' : ''}; ${filterText}.${omissionText}${affected}${roundingText}${invalidDistricts.length ? ` Invalid districts omitted individually: ${invalidDistricts.join(', ')}.` : ''}` }] };
       } catch (error) { return toolError(error); }
     });
 
