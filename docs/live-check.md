@@ -41,6 +41,18 @@ not exercised; explain unavailable inputs or runtime checks as not checked.
 
 ### Final build-stage and price-rounding re-check
 
+#### Final fix-round 6 owner hand-off
+
+Confirm each construction phrase independently against the structured output:
+
+- «Акт 16 от 2019 г., в близост до много зеленина» gives reached Act 16 only; it must not create an expected stage.
+- «АКТ 16 до края на годината!» remains expected, not reached.
+- «Акт 14. Очакван Акт 15 до края на годината» gives reached Act 14 and expected Act 15.
+
+Rerun the targeted plain-language requests E2, B2, and R3 above in Simon's live session. Record the observed tool calls,
+results, and verified versus unverified wishes on SIM-1205, then state the done/fix-first decision. Report only observed,
+redacted outcomes; this hand-off is a procedure and does not claim the live re-check has been performed.
+
 Using synthetic-style examples or matching live results, call `search_listings` with a short plain-language request in
 English, Bulgarian, and Russian. Report the observed extracted facts, the actual search filters and the build-stage
 decision for each language; do not infer a stage from an expected milestone. Keep examples synthetic and do not claim

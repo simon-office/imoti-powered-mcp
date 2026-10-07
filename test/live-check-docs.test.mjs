@@ -90,7 +90,7 @@ test('live-check documents stage 2 event expectations and safe reporting', async
 
 test('README reports stage 5 prepared and documents local refresh', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 5 implementation updated; awaiting Simon's live re-check/i);
+  assert.match(readme, /Status: stage 5 awaits Simon's final live re-check/i);
   assert.match(readme, /owner live check/i);
   assert.match(readme, /npm run refresh --/);
 });
@@ -146,7 +146,7 @@ test('stage 5 live re-check covers Bulgarian category/property types and filter 
 
 test('README reports stage 5 prepared pending Simon owner live check', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 5 implementation updated; awaiting Simon's live re-check/i);
+  assert.match(readme, /Status: stage 5 awaits Simon's final live re-check/i);
 });
 
 test('stage 5 update documents area and reconciliation findings plus photo/fact round checks', async () => {
@@ -155,7 +155,7 @@ test('stage 5 update documents area and reconciliation findings plus photo/fact 
   for (const item of ['620 EUR', '700 EUR', 'Младост 3', 'Младост 4', 'photo', 'fact', 'npm run build', 'npm test', 'report']) {
     assert.ok(doc.toLowerCase().includes(item.toLowerCase()), `live-check should document ${item}`);
   }
-  assert.match(readme, /stage 5 implementation updated; awaiting Simon's live re-check/i);
+  assert.match(readme, /stage 5 awaits Simon's final live re-check/i);
 });
 
 test('stage 5 owner re-check documents remaining feature, schedule, extraction, and listing cases', async () => {
@@ -189,6 +189,22 @@ test('stage 5 documents final build-stage and conservative currency checks for S
   assert.match(stage5, /minimums round upward[\s\S]*?maximums downward[\s\S]*?conservative rounding/i);
   assert.match(stage5, /short plain-language request[\s\S]*?English, Bulgarian, and Russian[\s\S]*?report the observed results and\s+the stage decision/i);
   assert.match(stage5, /search_listings/);
+});
+
+test('stage 5 final fix-round hand-off covers construction wording and targeted requests', async () => {
+  const doc = await read('docs/live-check.md');
+  const stage5 = doc.split('## Stage 4:')[0];
+  for (const phrase of [
+    /«Акт 16 от 2019 г\., в близост до много зеленина»[\s\S]*?reached Act 16 only/i,
+    /«АКТ 16 до края на годината!»[\s\S]*?expected/i,
+    /«Акт 14\. Очакван Акт 15 до края на годината»[\s\S]*?reached Act 14[\s\S]*?expected Act 15/i,
+    /rerun[\s\S]*?E2[\s\S]*?B2[\s\S]*?R3[\s\S]*?SIM-1205[\s\S]*?done\/fix-first/i,
+  ]) assert.match(stage5, phrase);
+});
+
+test('README identifies stage 5 as awaiting the final Simon live re-check', async () => {
+  const readme = await read('README.md');
+  assert.match(readme, /Status: stage 5 awaits Simon's final live re-check/i);
 });
 
 test('stage 4 owner check documents reproducible commands, criteria, reporting, and Simon hand-off', async () => {
