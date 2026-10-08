@@ -7,10 +7,10 @@ test('AI installation manual covers safe setup, verification, recovery, and Desk
   for (const phrase of [
     'Node.js 24', 'npm --version', 'claude --version', 'Chrome', 'Chromium',
     'git clone', 'npm ci --include=dev', 'npm run build', 'claude plugin validate .',
-    'claude plugin marketplace add', 'claude plugin install', 'claude plugin list',
+    'claude plugin marketplace add', 'claude plugin install', 'claude mcp list',
     'server_info', 'data directory', 'duplicate MCP', 'protective screen',
     'Claude Desktop', 'MCPB', 'Upload skill', 'absolute path',
-    'Node is too old', 'browser is missing', 'server does not connect',
+    'Node is below 24', 'Browser is missing', 'Server does not connect',
   ]) assert.ok(manual.includes(phrase), `manual should include ${phrase}`);
   assert.match(manual, /\.\.\/skills\/property-search\/SKILL\.md/);
 });
