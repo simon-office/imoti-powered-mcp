@@ -1,8 +1,12 @@
 {
   "name": "imoti-powered-mcp",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0",
   "description": "A conversational assistant for Bulgarian property listings",
   "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/simon-office/imoti-powered-mcp.git" },
+  "homepage": "https://github.com/simon-office/imoti-powered-mcp#readme",
+  "bugs": { "url": "https://github.com/simon-office/imoti-powered-mcp/issues" },
+  "keywords": ["imot.bg", "real-estate", "property-search", "mcp", "claude-code"],
   "type": "module",
   "engines": {
     "node": ">=24"

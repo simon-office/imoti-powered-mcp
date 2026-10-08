@@ -1494,7 +1494,7 @@ test('plugin manifests declare the package and stdio server', async () => {
   assert.deepEqual(plugin.author, { name: 'Simon Office' });
   assert.equal(marketplace.name, 'imoti-powered-mcp');
   assert.ok(marketplace.owner?.name);
-  assert.deepEqual(marketplace.plugins, [{ name: 'imoti-powered-mcp', source: './' }]);
+  assert.deepEqual(marketplace.plugins, [{ name: 'imoti-powered-mcp', source: './', version: pkg.version }]);
   assert.deepEqual(plugin.mcpServers.imoti, {
     command: 'node', args: ['--disable-warning=ExperimentalWarning', '${CLAUDE_PLUGIN_ROOT}/dist/main.js'],
     cwd: '${CLAUDE_PLUGIN_ROOT}',
