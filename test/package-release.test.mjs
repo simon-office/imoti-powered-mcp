@@ -41,7 +41,13 @@ test('release packaging creates versioned MCPB and root-level skill ZIP with run
     const manifest = JSON.parse(await zipText(mcpb, 'manifest.json'));
     assert.equal(manifest.manifest_version, '0.2');
     assert.equal(manifest.server.entry_point, 'dist/main.js');
-    assert.deepEqual(manifest.server.mcp_config.args, ['${__dirname}/dist/main.js']);
+    assert.deepEqual(manifest.compatibility.platforms, ['darwin', 'win32', 'linux']);
+    assert.equal(manifest.runtime, 'node >=24');
+    assert.deepEqual(manifest.server.mcp_config.args, ['--disable-warning=ExperimentalWarning', '${__dirname}/dist/main.js']);
+    for (const name of ['IMOTI_VISIBLE', 'IMOTI_BROWSER_EXECUTABLE', 'IMOTI_DATA_DIR']) {
+      assert.ok(manifest.user_config[name]);
+      assert.equal(manifest.server.mcp_config.env[name], `\${user_config.${name}}`);
+    }
     assert.ok(!JSON.stringify(manifest).includes('CLAUDE_PLUGIN_ROOT'));
     assert.deepEqual(await zipEntries(skillZip), ['SKILL.md']);
     assert.equal(await zipText(skillZip, 'SKILL.md'), await readFile(new URL('../skills/property-search/SKILL.md', import.meta.url), 'utf8'));

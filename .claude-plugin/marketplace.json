@@ -1,6 +1,7 @@
 {
   "name": "imoti-powered-mcp",
   "owner": { "name": "Simon Office" },
+  "metadata": { "description": "A local MCP server and Claude plugin for searching and evaluating Bulgarian properties." },
   "plugins": [
     {
       "name": "imoti-powered-mcp",
