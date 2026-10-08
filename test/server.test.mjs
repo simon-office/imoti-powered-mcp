@@ -1487,12 +1487,16 @@ test('server_info resolves the user home when HOME is unset', async () => {
 test('plugin manifests declare the package and stdio server', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const plugin = JSON.parse(await readFile(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8'));
-  const mcp = JSON.parse(await readFile(new URL('../.mcp.json', import.meta.url), 'utf8'));
+  const marketplace = JSON.parse(await readFile(new URL('../.claude-plugin/marketplace.json', import.meta.url), 'utf8'));
   assert.equal(plugin.name, 'imoti-powered-mcp');
   assert.equal(plugin.version, pkg.version);
   assert.ok(plugin.description);
   assert.deepEqual(plugin.author, { name: 'Simon Office' });
-  assert.deepEqual(mcp.mcpServers.imoti, {
+  assert.equal(marketplace.name, 'imoti-powered-mcp');
+  assert.ok(marketplace.owner?.name);
+  assert.deepEqual(marketplace.plugins, [{ name: 'imoti-powered-mcp', source: './' }]);
+  assert.deepEqual(plugin.mcpServers.imoti, {
     command: 'node', args: ['--disable-warning=ExperimentalWarning', '${CLAUDE_PLUGIN_ROOT}/dist/main.js'],
+    cwd: '${CLAUDE_PLUGIN_ROOT}',
   });
 });

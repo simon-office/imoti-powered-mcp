@@ -2,5 +2,12 @@
   "name": "imoti-powered-mcp",
   "version": "0.2.0-rc.1",
   "description": "A conversational assistant for Bulgarian property listings",
-  "author": { "name": "Simon Office" }
+  "author": { "name": "Simon Office" },
+  "mcpServers": {
+    "imoti": {
+      "command": "node",
+      "args": ["--disable-warning=ExperimentalWarning", "${CLAUDE_PLUGIN_ROOT}/dist/main.js"],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}"
+    }
+  }
 }

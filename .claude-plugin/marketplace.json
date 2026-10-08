@@ -1,0 +1,10 @@
+{
+  "name": "imoti-powered-mcp",
+  "owner": { "name": "Simon Office" },
+  "plugins": [
+    {
+      "name": "imoti-powered-mcp",
+      "source": "./"
+    }
+  ]
+}
