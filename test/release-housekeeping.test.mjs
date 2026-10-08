@@ -19,6 +19,7 @@ test('release metadata uses 0.2.0 and includes npm discovery metadata', async ()
   assert.equal(lock.packages[''].version, pkg.version);
   assert.equal(plugin.version, pkg.version);
   assert.equal(marketplace.plugins[0].version, pkg.version);
+  assert.ok(marketplace.metadata?.description?.trim());
   assert.match(versionSource, /0\.2\.0/);
   for (const field of ['repository', 'homepage', 'bugs', 'keywords']) assert.ok(pkg[field], `package.json should define ${field}`);
   const manifest = createMcpbManifest(pkg);
@@ -30,7 +31,15 @@ test('release metadata uses 0.2.0 and includes npm discovery metadata', async ()
   assert.equal(manifest.server.type, 'node');
   assert.equal(manifest.server.entry_point, 'dist/main.js');
   assert.equal(manifest.server.mcp_config.command, 'node');
-  assert.deepEqual(manifest.server.mcp_config.args, ['${__dirname}/dist/main.js']);
+  assert.deepEqual(manifest.compatibility, { platforms: ['darwin', 'win32', 'linux'] });
+  assert.equal(manifest.runtime, 'node >=24');
+  assert.deepEqual(manifest.server.mcp_config.args, ['--disable-warning=ExperimentalWarning', '${__dirname}/dist/main.js']);
+  const config = manifest.server.mcp_config;
+  for (const name of ['IMOTI_VISIBLE', 'IMOTI_BROWSER_EXECUTABLE', 'IMOTI_DATA_DIR']) {
+    assert.ok(config.env?.[name], `${name} is passed to the server`);
+    assert.ok(manifest.user_config?.[name], `${name} is user-configurable`);
+  }
+  assert.equal(manifest.user_config.IMOTI_VISIBLE.type, 'boolean');
 });
 
 test('README provides concise entry points before extended reference material', async () => {
