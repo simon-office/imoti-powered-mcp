@@ -43,6 +43,19 @@ test('user guide documents reliable CLI verification, update, and data directory
     'IMOTI_DATA_DIR', '~/.imoti-powered-mcp', 'environment that starts Claude Code',
   ]) assert.ok(guide.includes(phrase), `user guide should include ${phrase}`);
 
+  const cliInstall = guide.slice(guide.indexOf('## Claude Code CLI: persistent local marketplace install'), guide.indexOf('### Update or remove the CLI plugin'));
+  assert.match(cliInstall,
+    /marketplace-add command must complete successfully before you install the plugin; if it reports an error, resolve that first rather than proceeding/,
+    'plugin installation should proceed only after marketplace add succeeds, and stop on failure');
+
+  const verification = cliInstall.slice(cliInstall.indexOf('Verify from a terminal'), cliInstall.indexOf('Try:'));
+  assert.match(verification, /the required imoti entry is `plugin:imoti-powered-mcp:imoti … ✓ Connected`/,
+    'verification should name the required connected imoti entry');
+  assert.match(verification, /Other MCP entries may appear; no additional imoti entry is required/,
+    'verification should require no other imoti entry');
+  assert.match(verification, /optional check in a logged-in Claude Code session, ask the plugin to call `server_info`/,
+    'server_info should be optional and scoped to a logged-in session');
+
   const update = guide.slice(guide.indexOf('### Update or remove the CLI plugin'), guide.indexOf('## Claude Desktop Code tab'));
   const ordered = ['git pull', 'npm ci --include=dev', 'npm run build', 'claude plugin marketplace update imoti-powered-mcp', 'claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp', 'claude plugin install imoti-powered-mcp@imoti-powered-mcp'];
   let previous = -1;
