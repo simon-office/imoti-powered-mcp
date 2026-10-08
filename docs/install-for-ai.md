@@ -84,6 +84,8 @@ claude plugin install imoti-powered-mcp@imoti-powered-mcp
 
 The local marketplace source is keyed to its version, so after updating the checkout use the update procedure below; keep the checkout at the same path so Claude Code can find that source.
 
+Ask the user to restart Claude Code; wait for them to confirm the restart before verification.
+
 Primary verification, without requiring a logged-in Claude Code session:
 
 ```sh
@@ -98,6 +100,8 @@ As a second check only in a logged-in Claude Code session, ask Claude to call `s
 
 Preserve the checkout path registered as the marketplace source. In that checkout, pull, install exactly from the lockfile, build, update the marketplace, then uninstall and reinstall the version-keyed plugin in this order:
 
+Ask for user consent before uninstall/reinstall because these are user-scope plugin changes. Do not run the commands below until the user agrees. Stop if any command fails.
+
 ```sh
 git pull
 npm ci --include=dev
@@ -107,7 +111,7 @@ claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp
 claude plugin install imoti-powered-mcp@imoti-powered-mcp
 ```
 
-Ask for user consent before uninstall/reinstall because these are user-scope plugin changes. Verify afterward with `claude mcp list` as above. If the checkout path changes, the registered local marketplace source may no longer resolve; retain the original path or ask the user to deliberately re-register the new path.
+Ask the user to restart Claude Code; wait for them to confirm the restart before verification. Verify afterward with `claude mcp list` as above. If the checkout path changes, the registered local marketplace source may no longer resolve; retain the original path or ask the user to deliberately re-register the new path.
 
 ## Claude Desktop alternatives
 
@@ -137,7 +141,7 @@ Use this only if MCPB installation is unsuitable. Build the project first. Befor
 }
 ```
 
-Merge the entry into the existing `mcpServers`; do not replace unrelated servers. After the user-approved edit, fully quit Claude Desktop and reopen it. Check connection status in **Settings → Extensions**. For Windows, use absolute Windows paths and JSON-escaped backslashes. Keep user data outside the checkout.
+Merge the entry into the existing `mcpServers`; do not replace unrelated servers. After the user-approved edit, ask the user to fully quit Claude Desktop and reopen it; wait for their confirmation. Check connection status in **Settings → Extensions**. For Windows, use absolute Windows paths and JSON-escaped backslashes. Keep user data outside the checkout.
 
 ## Troubleshooting and safe stopping
 
