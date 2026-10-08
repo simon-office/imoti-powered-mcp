@@ -11,8 +11,11 @@ Requires Node.js 24 or newer, npm, Claude Code, and Chrome or Chromium for live 
 ```sh
 npm ci --include=dev
 npm run build
-claude --plugin-dir .
+claude plugin marketplace add "$PWD"
+claude plugin install imoti-powered-mcp@imoti-powered-mcp
 ```
+
+For a temporary, per-session alternative from the checkout, run `claude --plugin-dir .`. For [Claude Desktop setup](docs/user-guide.md#claude-desktop-chat), see the user guide.
 
 For the AI-assisted setup route, see [Install for AI](docs/install-for-ai.md).
 

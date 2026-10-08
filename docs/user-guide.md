@@ -31,20 +31,22 @@ claude plugin marketplace add "$PWD"
 claude plugin install imoti-powered-mcp@imoti-powered-mcp
 ```
 
-Start or restart Claude Code and check `/plugin` for the installed `imoti-powered-mcp` plugin. Try: “Find a two-bedroom apartment for sale in Sofia up to €220,000.” The plugin translates this to a three-room search (rooms include the living room) and explains the evidence and limits. This persistent route uses the marketplace manifest; `claude --plugin-dir .` is a temporary per-session alternative when run from the built checkout.
+The marketplace-add command must complete successfully before you install the plugin; if it reports an error, resolve that first rather than proceeding. This procedure was tested with Claude Code 2.1.76. Restart Claude Code after installation. Verify from a terminal with `claude mcp list` (this check works without logging in): the required imoti entry is `plugin:imoti-powered-mcp:imoti … ✓ Connected`. Other MCP entries may appear; no additional imoti entry is required. As an optional check in a logged-in Claude Code session, ask the plugin to call `server_info`. Try: “Find a two-bedroom apartment for sale in Sofia up to €220,000.” The plugin translates this to a three-room search (rooms include the living room) and explains the evidence and limits. This persistent route uses the marketplace manifest; `claude --plugin-dir .` is a temporary per-session alternative when run from the built checkout.
 
 ### Update or remove the CLI plugin
 
-To update after pulling changes into the same checkout, rebuild, then refresh the marketplace/plugin from Claude Code:
+To update, keep using the same checkout path registered as the local marketplace. Pull the changes, rebuild, refresh the marketplace, then uninstall and reinstall the plugin in this order:
 
 ```sh
 git pull
 npm ci --include=dev
 npm run build
 claude plugin marketplace update imoti-powered-mcp
+claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp
+claude plugin install imoti-powered-mcp@imoti-powered-mcp
 ```
 
-If your Claude Code version does not expose that marketplace update subcommand, remove and re-add the local marketplace using `/plugin` and the checkout path, then install the plugin again. To remove, use `/plugin` to uninstall `imoti-powered-mcp`; remove the local marketplace entry there as well. Deleting the checkout alone does not uninstall the registered plugin.
+`claude plugin update` may report success without refreshing the cached copy when the plugin is the same version; uninstalling and reinstalling forces Claude Code to load the updated checkout. Keep the checkout path unchanged: do not move or rename it because the marketplace points to that path. To remove the plugin, run `claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp`, then remove its local marketplace with `claude plugin marketplace remove imoti-powered-mcp`. Deleting the checkout alone does not uninstall the registered plugin.
 
 ## Claude Desktop Code tab
 
@@ -54,14 +56,14 @@ Update by rebuilding the checkout and refreshing the local marketplace as in the
 
 ## Claude Desktop chat
 
-There are two generated archives. Build both from the repository after installing dependencies:
+Get the release assets from the GitHub release tagged `v<version>`, or build both archives from a clone after installing dependencies:
 
 ```sh
 npm ci --include=dev
 npm run package:release
 ```
 
-The command creates `release/imoti-powered-mcp-0.2.0-rc.1.mcpb` (the version changes with the manifest) and `release/property-search-skill-0.2.0-rc.1.zip`.
+The command creates the version-named assets under `release/`: `imoti-powered-mcp-0.2.0.mcpb` and `property-search-skill-0.2.0.zip` (the version changes with each release). The `.mcpb` contains the built server and production dependencies and uses Claude Desktop's built-in Node runtime; you do not need to install Node separately for this route.
 
 ### Install the MCP server with the `.mcpb`
 
@@ -77,7 +79,7 @@ To update, upload the newly generated ZIP and replace/disable the old skill vers
 
 ### Manual `claude_desktop_config.json` server alternative
 
-Build the repository and use absolute paths for both `node` and the entry-point. Configuration locations are:
+Build the repository and use absolute paths for both `node` and the entry-point. Locate Node 24 or newer with `which node` in a terminal, then use the absolute path it prints. Back up `claude_desktop_config.json` before editing it. Configuration locations are:
 
 | Platform | Configuration file |
 | --- | --- |
@@ -85,20 +87,21 @@ Build the repository and use absolute paths for both `node` and the entry-point.
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
 | Linux | `~/.config/Claude/claude_desktop_config.json` |
 
-Merge this server entry into the existing JSON (preserve other settings), replacing both example paths with absolute paths on your computer:
+Merge this server entry into the existing JSON (preserve other settings), replacing both example paths with absolute paths on your computer. Optionally add an `env` object setting `IMOTI_DATA_DIR` to the absolute directory where you want local data stored:
 
 ```json
 {
   "mcpServers": {
     "imoti": {
       "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/imoti-powered-mcp/dist/main.js"]
+      "args": ["--disable-warning=ExperimentalWarning", "/absolute/path/to/imoti-powered-mcp/dist/main.js"],
+      "env": { "IMOTI_DATA_DIR": "/absolute/path/to/imoti-data" }
     }
   }
 }
 ```
 
-Restart Claude Desktop, then check its MCP/server status for `imoti` and try a small search. Update by pulling/replacing the checkout, running `npm ci --include=dev` and `npm run build`, then restarting Desktop. Remove by deleting only the `imoti` entry from `mcpServers` and restarting; keep other server entries intact.
+Restart Claude Desktop: fully quit the app, then reopen Claude Desktop. Check its MCP/server status for the `imoti` connection and try a small search. Update by pulling/replacing the checkout, running `npm ci --include=dev` and `npm run build`, then fully quitting and reopening Desktop. Remove by deleting only the `imoti` entry from `mcpServers` and restarting; keep other server entries intact.
 
 ## Using the tools and memory
 
@@ -115,6 +118,8 @@ Two bedrooms normally mean three rooms because the living room counts. Bulgarian
 Available tools include `get_search_districts` (valid district names), `search_listings`, `get_listing` (full listing evidence), `get_listing_photos`, `area_context`, and `compare_listings`. Memory tools are explicit: `save_note` stores a private note, `save_search` remembers criteria, and `watch_listing` adds/removes a listing from monitoring. `get_changes` returns observed changes. Nothing is saved or watched unless you ask.
 
 The database, caches and browser profile stay local under `IMOTI_DATA_DIR`, default `~/.imoti-powered-mcp` (database: `imoti.db`; profile: `profile`). To reset all local state, stop Desktop/Claude Code and any refresh job, then delete that data directory. This permanently removes saved notes, searches, watches, cached data and the browser profile. Set `IMOTI_DATA_DIR` first if you configured a different location.
+
+The plugin server inherits `IMOTI_DATA_DIR` from the environment that starts Claude Code. Set it in that environment before launching Claude Code if you want the CLI plugin to use a non-default data directory.
 
 Refresh is a one-shot operation, not a continuously running service:
 
