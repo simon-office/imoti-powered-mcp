@@ -5,8 +5,7 @@ export function createMcpbManifest(packageJson) {
     version: packageJson.version,
     description: packageJson.description,
     author: { name: 'Simon Office' },
-    compatibility: { platforms: ['darwin', 'win32', 'linux'] },
-    runtime: 'node >=24',
+    compatibility: { platforms: ['darwin', 'win32', 'linux'], runtimes: { node: '>=24.0.0' } },
     user_config: {
       IMOTI_VISIBLE: { type: 'boolean', title: 'Visible browser', description: 'Show the browser while searching.', default: false },
       IMOTI_BROWSER_EXECUTABLE: { type: 'string', title: 'Browser executable', description: 'Optional path to a Chromium browser executable.', default: '' },
