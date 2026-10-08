@@ -90,7 +90,7 @@ test('live-check documents stage 2 event expectations and safe reporting', async
 
 test('README reports stage 5 prepared and documents local refresh', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 5 implementation complete; Simon's final pets-policy live check pending/i);
+  assert.match(readme, /Status: the release candidate is prepared; Simon's live acceptance and publishing remain/i);
   assert.match(readme, /owner live check/i);
   assert.match(readme, /npm run refresh --/);
 });
@@ -146,7 +146,7 @@ test('stage 5 live re-check covers Bulgarian category/property types and filter 
 
 test('README reports stage 5 prepared pending Simon owner live check', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 5 implementation complete; Simon's final pets-policy live check pending/i);
+  assert.match(readme, /Status: the release candidate is prepared; Simon's live acceptance and publishing remain/i);
 });
 
 test('stage 5 update documents area and reconciliation findings plus photo/fact round checks', async () => {
@@ -155,7 +155,7 @@ test('stage 5 update documents area and reconciliation findings plus photo/fact 
   for (const item of ['620 EUR', '700 EUR', 'Младост 3', 'Младост 4', 'photo', 'fact', 'npm run build', 'npm test', 'report']) {
     assert.ok(doc.toLowerCase().includes(item.toLowerCase()), `live-check should document ${item}`);
   }
-  assert.match(readme, /stage 5 implementation complete; Simon's final pets-policy live check pending/i);
+  assert.match(readme, /release candidate is prepared; Simon's live acceptance and publishing remain/i);
 });
 
 test('stage 5 owner re-check documents remaining feature, schedule, extraction, and listing cases', async () => {
@@ -204,7 +204,7 @@ test('stage 5 final fix-round hand-off covers construction wording and targeted 
 
 test('README identifies stage 5 as awaiting the final Simon live re-check', async () => {
   const readme = await read('README.md');
-  assert.match(readme, /Status: stage 5 implementation complete; Simon's final pets-policy live check pending/i);
+  assert.match(readme, /Status: the release candidate is prepared; Simon's live acceptance and publishing remain/i);
 });
 
 test('final pets-policy check documents two live cases, synthetic regressions, reporting, and pending status', async () => {
@@ -219,7 +219,7 @@ test('final pets-policy check documents two live cases, synthetic regressions, r
   assert.match(doc, /npm test[\s\S]*?observed result/i);
   assert.match(doc, /redacted live outcomes[\s\S]*?SIM-1205/i);
   assert.match(doc, /access failure[\s\S]*?stop[\s\S]*?never infer pass/i);
-  assert.match(readme, /Status: stage 5 implementation complete; Simon's final pets-policy live check pending/i);
+  assert.match(readme, /Status: the release candidate is prepared; Simon's live acceptance and publishing remain/i);
 });
 
 test('stage 4 owner check documents reproducible commands, criteria, reporting, and Simon hand-off', async () => {

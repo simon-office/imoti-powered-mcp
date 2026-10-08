@@ -1,5 +1,85 @@
 # Owner live check (stage 1)
 
+## Stage 6: release-candidate live acceptance (Simon)
+
+This procedure is for a release candidate whose implementation is prepared. None of the interactive checks below is
+claimed as completed until Simon runs it and records observed evidence. Use a machine with Node.js 24+, npm, Claude Code,
+Claude Desktop where applicable, and Chrome or Chromium installed. If the required browser is missing, stop browser-dependent
+checks and request Simon's action to install/select one; do not mark those checks passed. If any protective screen appears,
+stop the operation and request Simon's visible, human continuation. For a missing browser or protective screen, request the
+user's action before proceeding. Never automate past a challenge.
+
+### Fresh clone and persistent Claude Code marketplace install
+
+In a new temporary directory, use the repository URL and follow these commands:
+
+```sh
+git clone https://github.com/simon-office/imoti-powered-mcp.git
+cd imoti-powered-mcp
+npm ci --include=dev
+npm run build
+npm test
+claude plugin validate .
+claude plugin marketplace add "$PWD"
+claude plugin install imoti-powered-mcp@imoti-powered-mcp
+claude plugin list
+```
+
+Record the observed validation output and confirm the installed plugin appears in `claude plugin list`. Start a fresh Claude
+Code session and confirm the plugin MCP server `plugin:imoti-powered-mcp:imoti` is available. The repository's root
+`.mcp.json` also exposes `imoti`; decline that duplicate server and confirm only the plugin server is active. Call
+`server_info` and confirm it identifies the expected server/version. Ask Claude Code to search for an apartment in Sofia,
+then verify the `search_listings` tool was called and its filters/results are shown as observed; do not infer success from
+the assistant's prose.
+
+For update verification, update the checkout to the candidate being checked, repeat build, test, validation, marketplace
+registration/install as appropriate, then restart Claude Code and confirm the listed plugin and `server_info` reflect that
+version. For removal verification, run `claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp` and
+`claude plugin marketplace remove imoti-powered-mcp`; confirm `claude plugin list` no longer lists it. Do not remove the
+owner's user data directory or personal marketplace entries.
+
+### Claude Desktop Code tab and generated MCPB / skill ZIP
+
+Build the release artifacts from the candidate checkout using `npm run package:release`. Inspect local assets and repository
+state with `git status --short --untracked-files=all`; confirm generated install assets are present where expected and no
+user data, credentials, profile, database, cache, or unintended untracked files are included. Record the exact artifact
+version and aggregate checks only; do not attach user files or listing content.
+
+In Claude Desktop, open the Code tab and a project/workspace containing the candidate checkout. Verify the provided
+`server_info` and run a synthetic Sofia search request; record whether the expected server appears and whether the search
+tool is invoked. If installed as a Claude Code plugin in this client too, avoid enabling a second copy of the server.
+To update this path, install the newly generated MCPB and skill ZIP again, restart/reopen the client and repeat the server
+and search checks. To remove it, uninstall/remove the MCPB integration and uploaded skill in Claude Desktop, then confirm
+neither appears in the Code tab.
+
+Install the generated `.mcpb` through Claude Desktop's MCP server installation flow and verify the installed server with
+`server_info`, then run the same synthetic Sofia search. Separately upload the generated property-search skill ZIP through
+the skill upload UI, enable it, and test a synthetic Sofia search request. Confirm the skill is available and that the
+server tool is selected; no live listing content is needed for these packaging checks. For each path, document its update
+and removal outcome separately. Do not claim success when the relevant UI or browser is unavailable.
+
+### Reporting
+
+Report every check as **PASS**, **FAIL**, or **NOT CHECKED**, with a short redacted reason and the command/client version
+where useful. `NOT CHECKED` is mandatory for checks skipped because access, UI, or browser is unavailable. Do not present
+unrun checks as passed. Never include personal or identifying listing data: omit listing IDs, URLs, titles, addresses,
+seller/contact details, copied descriptions, photos, raw tool output, screenshots, profile contents, credentials, and
+personal paths. Report only synthetic request labels, aggregate counts, version strings, errors, and redacted observations.
+Keep the report free of personal or listing data.
+
+| Check | Status | Redacted evidence / reason |
+|---|---|---|
+| Fresh clone, build, npm test, and plugin validation | NOT CHECKED | |
+| Persistent CLI marketplace, plugin listing, no duplicate server, server_info, Sofia search | NOT CHECKED | |
+| CLI marketplace update and removal | NOT CHECKED | |
+| Claude Desktop Code tab, server_info, and Sofia search | NOT CHECKED | |
+| Generated MCPB install, server_info, Sofia search, update, and removal | NOT CHECKED | |
+| Skill ZIP upload, enablement, synthetic search, update, and removal | NOT CHECKED | |
+| Local assets and untracked-file inspection | NOT CHECKED | |
+
+This report template is intentionally initialized as NOT CHECKED. Fill it only with evidence observed during the owner's
+run; it is not evidence that these checks have been performed.
+
 ## Owner live check (stage 5: multilingual search coverage)
 
 ### Final pets-policy live re-check (Simon)
