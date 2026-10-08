@@ -292,7 +292,7 @@ In Claude Code, confirm the plugin appears in `/mcp` as `plugin:imoti-powered-mc
 declined. Use the plugin server `plugin:imoti-powered-mcp:imoti`. For the live workflow, call
 `search_listings` for a two-bedroom apartment in Sofia under €350,000 near the metro, then call `save_note` and/or
 `watch_listing` for a returned listing. Close the chat/session, run `npm run refresh --`, reopen the chat, and call
-`get_changes` to inspect the resulting digest. See [`sample-requests.md`](sample-requests.md) for request examples.
+`get_changes` to inspect the resulting digest. See [`sample-requests.md`](../sample-requests.md) for request examples.
 Check tool output and skill guidance against returned evidence; do not infer a result when the site returns no matches or
 a protective screen. If a challenge appears, stop automated access and continue manually in visible mode.
 
@@ -306,7 +306,7 @@ a protective screen. If a challenge appears, stop automated access and continue 
   cache files to manufacture a result.
 - Use a listing whose coordinates are unavailable and confirm the response explicitly explains that coordinates are
   unavailable, rather than claiming a distance or silently using an imprecise location.
-- Review [`limitations.md`](limitations.md) and [`site-permissions.md`](site-permissions.md). Confirm the documented
+- Review [`limitations.md`](../limitations.md) and [`site-permissions.md`](../site-permissions.md). Confirm the documented
   precision/uncertainty boundaries and Simon's unresolved site-access and image-use permission decisions. The live check
   does not resolve those decisions or grant permission.
 - Never share credentials, photos, exact addresses or raw user data.
@@ -542,3 +542,4 @@ each factual result with its stated field/description evidence, mark photo obser
 record unavailable results separately. Report date/time, commit, exact commands and tool calls, sample counts, checks
 completed, failures, and redacted references using the owner-completed template. Do not report synthetic test outcomes as
 owner live findings, and do not include photos, listing text, exact addresses or personal data.
+# Owner live check

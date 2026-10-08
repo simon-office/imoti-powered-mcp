@@ -6,7 +6,7 @@ const root = new URL('../', import.meta.url);
 const read = path => readFile(new URL(path, root), 'utf8');
 
 test('live-check documentation gives executable memory and refresh steps', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const examples = [...doc.matchAll(/```json\s*([\s\S]*?)\s*```/g)].map(([, json]) => JSON.parse(json));
   assert.deepEqual(examples.filter(example => ['save_search', 'save_note', 'watch_listing', 'get_changes'].includes(example.name)), [
     {
@@ -39,7 +39,7 @@ test('live-check documentation gives executable memory and refresh steps', async
 });
 
 test('release live-check uses existing tools and distinguishes the plugin server', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const readme = await read('README.md');
   const releaseDocs = `${doc}\n${readme}`;
   assert.doesNotMatch(releaseDocs, /search-feedback-digest/i);
@@ -51,7 +51,7 @@ test('release live-check uses existing tools and distinguishes the plugin server
 });
 
 test('live-check preserves stage 1 and provides runnable stage 3 evaluation calls', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   assert.match(doc, /Owner live check \(stage 1\)/);
   assert.match(doc, /npm run search -- --type tristaen --price-max 350000 --area-min 70/);
   assert.match(doc, /Compare ten results visually/);
@@ -66,7 +66,7 @@ test('live-check preserves stage 1 and provides runnable stage 3 evaluation call
 });
 
 test('stage 3 explains human labels, metadata, privacy, and leaves outcomes blank', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   for (const label of ['visible room', 'finish', 'apparent renovation need', 'render/photo', 'coverage', 'location match', 'precision', 'nearby-stop/context accuracy']) {
     assert.match(doc, new RegExp(label, 'i'));
   }
@@ -79,7 +79,7 @@ test('stage 3 explains human labels, metadata, privacy, and leaves outcomes blan
 });
 
 test('live-check documents stage 2 event expectations and safe reporting', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   assert.match(doc, /first observation[\s\S]*?starts local history at that observation[\s\S]*?no inferred earlier price history/i);
   assert.match(doc, /changed asking price[\s\S]*?expect one `price_change` event/i);
   assert.match(doc, /repeated unchanged refresh[\s\S]*?must add no duplicate change event/i);
@@ -97,13 +97,13 @@ test('README reports stage 5 prepared and documents local refresh', async () => 
 
 test('README and stage 5 live check document bounded page continuation and spread reporting', async () => {
   const readme = await read('README.md');
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   assert.match(readme, /criteria\.startPage[\s\S]*?1–26[\s\S]*?criteria\.maxPages[\s\S]*?3/);
   assert.match(doc, /Targeted continuation and page-spread check[\s\S]*?startPage: 4[\s\S]*?contributingPages[\s\S]*?propertyTypes[\s\S]*?omit listing IDs, URLs/i);
 });
 
 test('stage 5 owner procedure covers the nine exact requests and expected comparisons', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const requests = [
     "Hi! We're relocating to Sofia next spring and want to buy a two bedroom apartment. Budget is about 200k euro. We don't know the city at all – somewhere safe, green, and not too far from the center would be great, ideally close to a metro station since we won't have a car. What would you suggest?",
     'I just got a job at Business Park Sofia and need to rent a furnished one-bedroom flat, max 800 EUR per month. I have a cat. I\'d like to walk or take a short ride to the office. Can you find something?',
@@ -121,7 +121,7 @@ test('stage 5 owner procedure covers the nine exact requests and expected compar
 });
 
 test('stage 5 gives exact runnable calls and concrete result comparisons for every request', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const stage5 = doc.split('## Stage 4:')[0];
   assert.match(stage5, /exact `search_listings` tool name[\s\S]*?criteria[\s\S]*?limit/);
   for (const label of ['E1', 'E2', 'E3', 'B1', 'B2', 'B3', 'R1', 'R2', 'R3']) {
@@ -134,7 +134,7 @@ test('stage 5 gives exact runnable calls and concrete result comparisons for eve
 });
 
 test('stage 5 live re-check covers Bulgarian category/property types and filter evidence', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const stage5 = doc.split('## Stage 4:')[0];
   assert.match(stage5, /biznes-imot[\s\S]*?promishleno-pomeshtenie[\s\S]*?БАНКОВ ОФИС/i);
   assert.match(stage5, /property-type slug and displayed[\s\S]*?category[\s\S]*?title/i);
@@ -150,7 +150,7 @@ test('README reports stage 5 prepared pending Simon owner live check', async () 
 });
 
 test('stage 5 update documents area and reconciliation findings plus photo/fact round checks', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const readme = await read('README.md');
   for (const item of ['620 EUR', '700 EUR', 'Младост 3', 'Младост 4', 'photo', 'fact', 'npm run build', 'npm test', 'report']) {
     assert.ok(doc.toLowerCase().includes(item.toLowerCase()), `live-check should document ${item}`);
@@ -159,7 +159,7 @@ test('stage 5 update documents area and reconciliation findings plus photo/fact 
 });
 
 test('stage 5 owner re-check documents remaining feature, schedule, extraction, and listing cases', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const stage5 = doc;
   for (const phrase of [
     /Izgrev[\s\S]*?correct ЖК feature/i,
@@ -179,7 +179,7 @@ test('stage 5 owner re-check documents remaining feature, schedule, extraction, 
 });
 
 test('stage 5 documents final build-stage and conservative currency checks for Simon', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const stage5 = doc.split('## Stage 4:')[0];
   assert.match(stage5, /ПРЕД АКТ 15[\s\S]*?future Act 16/i);
   assert.match(stage5, /Сградата е с Акт 16[\s\S]*?reached Act 16/i);
@@ -192,7 +192,7 @@ test('stage 5 documents final build-stage and conservative currency checks for S
 });
 
 test('stage 5 final fix-round hand-off covers construction wording and targeted requests', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const stage5 = doc.split('## Stage 4:')[0];
   for (const phrase of [
     /«Акт 16 от 2019 г\., в близост до много зеленина»[\s\S]*?reached Act 16 only/i,
@@ -208,7 +208,7 @@ test('README identifies stage 5 as awaiting the final Simon live re-check', asyn
 });
 
 test('final pets-policy check documents two live cases, synthetic regressions, reporting, and pending status', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const readme = await read('README.md');
   assert.match(doc, /2c178815702328727/);
   assert.ok([...doc.matchAll(/```json\s*([\s\S]*?)\s*```/g)].map(([, json]) => JSON.parse(json)).some(example =>
@@ -223,7 +223,7 @@ test('final pets-policy check documents two live cases, synthetic regressions, r
 });
 
 test('stage 4 owner check documents reproducible commands, criteria, reporting, and Simon hand-off', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   const readme = await read('README.md');
   for (const command of ['npm ci --include=dev', 'npm run build', 'npm test', 'claude plugin validate .', 'claude --plugin-dir .']) {
     assert.ok(doc.includes(command), `missing live-check command: ${command}`);
@@ -246,7 +246,7 @@ test('stage 4 owner check documents reproducible commands, criteria, reporting, 
 });
 
 test('stage 3 owner workflow checks location provenance and complete bounded photo inventory', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   assert.match(doc, /two or more listings already returned by your own stage 1 search and stored locally/i);
   for (const phrase of [
     /compact output/i,
@@ -261,7 +261,7 @@ test('stage 3 owner workflow checks location provenance and complete bounded pho
 });
 
 test('stage 3 report template captures unavailable providers, counts, redactions, and scope limits', async () => {
-  const doc = await read('docs/live-check.md');
+  const doc = await read('docs/maintainers/live-check.md');
   assert.match(doc, /runtime[\s\S]*?commit[\s\S]*?provider[\s\S]*?sample size/i);
   assert.match(doc, /correct[\s\S]*?incorrect[\s\S]*?uncertain[\s\S]*?unavailable/i);
   assert.match(doc, /Ollama[\s\S]*?OpenRouter[\s\S]*?were not checked when unavailable/i);

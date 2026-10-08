@@ -1,13 +1,41 @@
 # imoti-powered-mcp
 
-A conversational assistant that searches imot.bg, evaluates properties and remembers what matters to the user. Describe the desired home in plain language; the assistant chooses filters, finds listings, reviews their photos and location, and explains its shortlist.
+## What it is
+
+An unofficial assistant for personal use to search imot.bg, evaluate properties, and remember what matters to you. Describe a home in plain language; the assistant chooses filters, finds listings, reviews available photo and location evidence, and explains a shortlist. This project is not affiliated with or endorsed by imot.bg.
+
+## Quick install
+
+Requires Node.js 24 or newer, npm, Claude Code, and Chrome or Chromium for live browsing. From a repository checkout:
+
+```sh
+npm ci --include=dev
+npm run build
+claude --plugin-dir .
+```
+
+For the AI-assisted setup route, see [Install for AI](docs/install-for-ai.md).
+
+## Quick usage
+
+Ask Claude Code: “Find a two-bedroom apartment in Sofia under €350,000, within walking distance of the metro.” See the [user guide](docs/user-guide.md) for setup, examples, and result interpretation.
+
+## Documentation
+
+- [Install for AI](docs/install-for-ai.md) — guided setup
+- [User guide](docs/user-guide.md) — usage and interpretation
+- [Sample requests](docs/sample-requests.md)
+- [Limitations](docs/limitations.md)
+- [Maintainer live check](docs/maintainers/live-check.md)
+- [Site permissions](docs/site-permissions.md)
+- [Engineering](docs/engineering.md)
 
 **Status: stage 5 implementation complete; Simon's final pets-policy live check pending.**
 
 See [product limitations](docs/limitations.md) for coverage and uncertainty boundaries, and [site terms and image-use permissions](docs/site-permissions.md) for the dated source review and decisions required before distribution.
 
 To refresh locally saved searches and watched listings while no chat session is open, run `npm run refresh --` from the
-repository. See [`docs/live-check.md`](docs/live-check.md) for the owner live-check procedure and safe reporting guidance.
+repository. See [`docs/maintainers/live-check.md`](docs/maintainers/live-check.md) for the owner live-check procedure and safe reporting guidance.
 
 ## Schedule local refreshes
 
@@ -106,7 +134,7 @@ npx @modelcontextprotocol/inspector node dist/main.js
 Every change arrives as a pull request. It is reviewed and tested, and CI must pass before it is merged into `main`.
 Simon owns the remaining release steps: run the owner live check and `claude plugin validate .` on his machine, resolve
 the site-access and image-use permission decisions, then choose the release version, tag it, and publish the GitHub
-release. See [`docs/live-check.md`](docs/live-check.md) for the reproducible checks and report template.
+release. See [`docs/maintainers/live-check.md`](docs/maintainers/live-check.md) for the reproducible checks and report template.
 
 ## License
 

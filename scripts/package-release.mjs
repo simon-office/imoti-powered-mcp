@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
+import { createMcpbManifest } from './mcpb-manifest.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
@@ -43,18 +44,7 @@ try {
     }
   }
 
-  const manifest = {
-    manifest_version: '0.2',
-    name: packageJson.name,
-    version: packageJson.version,
-    description: packageJson.description,
-    author: { name: 'Simon Office' },
-    server: {
-      type: 'node',
-      entry_point: 'dist/main.js',
-      mcp_config: { command: 'node', args: ['${__dirname}/dist/main.js'] }
-    }
-  };
+  const manifest = createMcpbManifest(packageJson);
   await writeFile(join(bundle, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await mkdir(outputDir, { recursive: true });
   const mcpbPath = join(outputDir, `imoti-powered-mcp-${packageJson.version}.mcpb`);
