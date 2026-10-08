@@ -49,10 +49,14 @@ test('user guide documents reliable CLI verification, update, and data directory
     'plugin installation should proceed only after marketplace add succeeds, and stop on failure');
 
   const verification = cliInstall.slice(cliInstall.indexOf('Verify from a terminal'), cliInstall.indexOf('Try:'));
-  assert.match(verification, /the required imoti entry is `plugin:imoti-powered-mcp:imoti … ✓ Connected`/,
-    'verification should name the required connected imoti entry');
-  assert.match(verification, /Other MCP entries may appear; no additional imoti entry is required/,
-    'verification should require no other imoti entry');
+  assert.match(verification, /confirm `plugin:imoti-powered-mcp:imoti … ✓ Connected`/,
+    'verification should name the connected imoti entry to confirm');
+  assert.match(verification, /`plugin:imoti-powered-mcp:imoti … ✓ Connected` is the only `imoti` entry/,
+    'verification should require the connected plugin entry to be the only imoti entry');
+  assert.match(verification, /Any second `imoti` entry.*duplicate.*remove/,
+    'verification should instruct users to remove duplicate imoti entries');
+  assert.match(verification, /project-scoped.*old root `.mcp\.json`/,
+    'verification should identify a project-scoped entry left from an old root config as a duplicate example');
   assert.match(verification, /optional check in a logged-in Claude Code session, ask the plugin to call `server_info`/,
     'server_info should be optional and scoped to a logged-in session');
 
