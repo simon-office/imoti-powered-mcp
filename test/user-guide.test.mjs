@@ -31,14 +31,64 @@ test('user guide asserts persistent CLI setup and Code-tab workflow', () => {
   ]) assert.ok(guide.includes(phrase), `user guide should explain Code-tab workflow: ${phrase}`);
 });
 
+test('user guide documents reliable CLI verification, update, and data directory inheritance', () => {
+  for (const phrase of [
+    'Claude Code 2.1.76', 'claude mcp list', 'without logging in',
+    'plugin:imoti-powered-mcp:imoti', '✓ Connected',
+    'server_info', 'optional', 'Restart Claude Code',
+    'claude plugin marketplace update imoti-powered-mcp',
+    'claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp',
+    'claude plugin install imoti-powered-mcp@imoti-powered-mcp',
+    'same version', 'cached copy', 'checkout path unchanged',
+    'IMOTI_DATA_DIR', '~/.imoti-powered-mcp', 'environment that starts Claude Code',
+  ]) assert.ok(guide.includes(phrase), `user guide should include ${phrase}`);
+
+  const cliInstall = guide.slice(guide.indexOf('## Claude Code CLI: persistent local marketplace install'), guide.indexOf('### Update or remove the CLI plugin'));
+  assert.match(cliInstall,
+    /marketplace-add command must complete successfully before you install the plugin; if it reports an error, resolve that first rather than proceeding/,
+    'plugin installation should proceed only after marketplace add succeeds, and stop on failure');
+
+  const verification = cliInstall.slice(cliInstall.indexOf('Verify from a terminal'), cliInstall.indexOf('Try:'));
+  assert.match(verification, /confirm `plugin:imoti-powered-mcp:imoti … ✓ Connected`/,
+    'verification should name the connected imoti entry to confirm');
+  assert.match(verification, /`plugin:imoti-powered-mcp:imoti … ✓ Connected` is the only `imoti` entry/,
+    'verification should require the connected plugin entry to be the only imoti entry');
+  assert.match(verification, /Any second `imoti` entry.*duplicate.*remove/,
+    'verification should instruct users to remove duplicate imoti entries');
+  assert.match(verification, /project-scoped.*old root `.mcp\.json`/,
+    'verification should identify a project-scoped entry left from an old root config as a duplicate example');
+  assert.match(verification, /optional check in a logged-in Claude Code session, ask the plugin to call `server_info`/,
+    'server_info should be optional and scoped to a logged-in session');
+
+  const update = guide.slice(guide.indexOf('### Update or remove the CLI plugin'), guide.indexOf('## Claude Desktop Code tab'));
+  const ordered = ['git pull', 'npm ci --include=dev', 'npm run build', 'claude plugin marketplace update imoti-powered-mcp', 'claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp', 'claude plugin install imoti-powered-mcp@imoti-powered-mcp'];
+  let previous = -1;
+  for (const command of ordered) {
+    const index = update.indexOf(command);
+    assert.ok(index > previous, `update guide should order ${command} correctly`);
+    previous = index;
+  }
+});
+
+test('user guide documents packaged assets and a reproducible manual Desktop setup', () => {
+  const desktop = guide.slice(guide.indexOf('## Claude Desktop chat'), guide.indexOf('## Using the tools and memory'));
+  for (const phrase of [
+    'GitHub release tagged `v<version>`', 'npm run package:release', '`release/`',
+    'imoti-powered-mcp-0.2.0.mcpb', 'property-search-skill-0.2.0.zip',
+    'built-in Node', 'do not need to install Node separately',
+    'Back up', 'which node', 'Node 24', '--disable-warning=ExperimentalWarning',
+    'IMOTI_DATA_DIR', 'fully quit', 'reopen Claude Desktop', 'MCP/server status',
+  ]) assert.ok(desktop.includes(phrase), `Desktop guide should include ${phrase}`);
+});
+
 test('user guide asserts platform config paths, absolute paths, and manual-server lifecycle', () => {
   for (const phrase of [
     'macOS', '~/Library/Application Support/Claude/claude_desktop_config.json',
     'Windows', '%APPDATA%\\Claude\\claude_desktop_config.json',
     'Linux', '~/.config/Claude/claude_desktop_config.json',
     'absolute paths', '"command": "/absolute/path/to/node"',
-    '"args": ["/absolute/path/to/imoti-powered-mcp/dist/main.js"]',
-    'Restart Claude Desktop', 'check its MCP/server status',
+    '"args": ["--disable-warning=ExperimentalWarning", "/absolute/path/to/imoti-powered-mcp/dist/main.js"]',
+    'Restart Claude Desktop', 'Check its MCP/server status',
     'Update by pulling/replacing the checkout', 'Remove by deleting only the `imoti` entry',
   ]) assert.ok(guide.includes(phrase), `user guide should document manual server setup: ${phrase}`);
 });
