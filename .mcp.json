@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "imoti": {
-      "command": "node",
-      "args": ["--disable-warning=ExperimentalWarning", "${CLAUDE_PLUGIN_ROOT}/dist/main.js"]
-    }
-  }
-}

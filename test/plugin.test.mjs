@@ -19,6 +19,26 @@ test('plugin manifest retains the task 2 required fields', async () => {
   assert.equal(typeof manifest.description, 'string');
   assert.ok(manifest.description.length > 0);
   assert.deepEqual(manifest.author, { name: 'Simon Office' });
+  assert.deepEqual(manifest.mcpServers, {
+    imoti: {
+      command: 'node',
+      args: ['--disable-warning=ExperimentalWarning', '${CLAUDE_PLUGIN_ROOT}/dist/main.js'],
+      cwd: '${CLAUDE_PLUGIN_ROOT}'
+    }
+  });
+});
+
+test('marketplace registers this repository root as the plugin source', async () => {
+  const marketplace = JSON.parse(await readFile(new URL('../.claude-plugin/marketplace.json', import.meta.url), 'utf8'));
+  assert.equal(marketplace.name, 'imoti-powered-mcp');
+  assert.ok(marketplace.owner?.name);
+  assert.equal(marketplace.plugins.length, 1);
+  assert.equal(marketplace.plugins[0].name, 'imoti-powered-mcp');
+  assert.equal(marketplace.plugins[0].source, './');
+});
+
+test('project does not register a second MCP server at the repository root', async () => {
+  await assert.rejects(access(new URL('../.mcp.json', import.meta.url)), { code: 'ENOENT' });
 });
 
 test('Node entry points disable ExperimentalWarning without changing their commands', async () => {
@@ -26,6 +46,4 @@ test('Node entry points disable ExperimentalWarning without changing their comma
   assert.match(packageJson.scripts.test, /node --disable-warning=ExperimentalWarning --test$/);
   assert.match(packageJson.scripts.search, /^node --disable-warning=ExperimentalWarning dist\/cli\.js search$/);
   assert.match(packageJson.scripts.listing, /^node --disable-warning=ExperimentalWarning dist\/cli\.js listing$/);
-  const mcp = JSON.parse(await readFile(new URL('../.mcp.json', import.meta.url), 'utf8'));
-  assert.deepEqual(mcp.mcpServers.imoti.args, ['--disable-warning=ExperimentalWarning', '${CLAUDE_PLUGIN_ROOT}/dist/main.js']);
 });
