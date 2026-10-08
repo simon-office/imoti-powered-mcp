@@ -30,7 +30,7 @@ Ask Claude Code: “Find a two-bedroom apartment in Sofia under €350,000, with
 - [Site permissions](docs/site-permissions.md)
 - [Engineering](docs/engineering.md)
 
-**Status: stage 5 implementation complete; Simon's final pets-policy live check pending.**
+**Status: the release candidate is prepared; Simon's live acceptance and publishing remain.** The owner checks in the maintainer live check have not been run here; unrun checks are not passed.
 
 See [product limitations](docs/limitations.md) for coverage and uncertainty boundaries, and [site terms and image-use permissions](docs/site-permissions.md) for the dated source review and decisions required before distribution.
 
