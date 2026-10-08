@@ -45,6 +45,20 @@ test('browser page limit preserves 20-page default and rejects invalid configure
   assert.doesNotThrow(() => new PlaywrightAdapter({ maxPages: 5 }));
 });
 
+test('empty and whitespace desktop environment values use defaults', () => {
+  const oldData = process.env.IMOTI_DATA_DIR;
+  const oldExecutable = process.env.IMOTI_BROWSER_EXECUTABLE;
+  process.env.IMOTI_DATA_DIR = '   ';
+  process.env.IMOTI_BROWSER_EXECUTABLE = ' ';
+  try {
+    const adapter = new PlaywrightAdapter();
+    assert.match(adapter.dataDir, /\.imoti-powered-mcp$/);
+  } finally {
+    if (oldData === undefined) delete process.env.IMOTI_DATA_DIR; else process.env.IMOTI_DATA_DIR = oldData;
+    if (oldExecutable === undefined) delete process.env.IMOTI_BROWSER_EXECUTABLE; else process.env.IMOTI_BROWSER_EXECUTABLE = oldExecutable;
+  }
+});
+
 test('photo references allow HTTPS imotstatic and cdn image hosts only', () => {
   assert.equal(isAllowedPhotoReference('https://imotstatic1.focus.bg/fake-image.jpg'), true);
   assert.equal(isAllowedPhotoReference('https://cdn12.focus.bg/fake-image.jpg'), true);

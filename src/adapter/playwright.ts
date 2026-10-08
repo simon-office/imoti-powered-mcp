@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { dataDirectory, nonEmptyEnvironmentValue } from '../environment.js';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'playwright-core';
 import { ProtectiveScreenError, type ListingPhoto, type SiteAdapter, type SitePage } from './types.js';
@@ -90,7 +90,7 @@ export class PlaywrightAdapter implements SiteAdapter {
   private readonly maxPages: number;
 
   constructor(private readonly options: PlaywrightAdapterOptions = {}) {
-    this.dataDir = options.dataDir ?? process.env.IMOTI_DATA_DIR ?? join(homedir(), '.imoti-powered-mcp');
+    this.dataDir = nonEmptyEnvironmentValue(options.dataDir) ?? dataDirectory();
     this.delayMs = requestDelay(options.delayMs);
     this.maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
     if (!Number.isInteger(this.maxPages) || this.maxPages < 1 || this.maxPages > MAX_MAX_PAGES) throw new RangeError(`maxPages must be an integer from 1 to ${MAX_MAX_PAGES}`);
@@ -175,9 +175,9 @@ export class PlaywrightAdapter implements SiteAdapter {
     this.contextPromise ??= (async () => {
       const profile = join(this.dataDir, 'profile');
       await mkdir(profile, { recursive: true });
-      const executablePath = this.options.executablePath ?? process.env.IMOTI_BROWSER_EXECUTABLE;
+      const executablePath = nonEmptyEnvironmentValue(this.options.executablePath) ?? nonEmptyEnvironmentValue(process.env.IMOTI_BROWSER_EXECUTABLE);
       return chromium.launchPersistentContext(profile, {
-        headless: process.env.IMOTI_VISIBLE !== '1',
+        headless: !['true', '1'].includes(process.env.IMOTI_VISIBLE?.trim().toLowerCase() ?? ''),
         ...(executablePath ? { executablePath } : { channel: 'chrome' }),
         userAgent: USER_AGENT,
         locale: 'bg-BG',

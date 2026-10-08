@@ -25,7 +25,7 @@ export class ProtectiveScreenError extends Error {
   readonly howToContinue: string;
 
   constructor(url: string, status: number) {
-    const howToContinue = 'Stop fetching and continue manually in visible mode (IMOTI_VISIBLE=1).';
+    const howToContinue = 'Stop fetching and continue manually in visible mode (set IMOTI_VISIBLE=1 in Claude Desktop).';
     super(`A protective screen was detected at ${url}. ${howToContinue}`);
     this.name = 'ProtectiveScreenError';
     this.url = url;
