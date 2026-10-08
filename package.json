@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --disable-warning=ExperimentalWarning --test",
+    "package:release": "npm run build && node scripts/package-release.mjs",
     "search": "node --disable-warning=ExperimentalWarning dist/cli.js search",
     "listing": "node --disable-warning=ExperimentalWarning dist/cli.js listing",
     "refresh": "node --disable-warning=ExperimentalWarning dist/cli.js refresh"
