@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
-import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, readPhotoBodyWithLimit, PlaywrightAdapter } from '../dist/adapter/playwright.js';
+import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, readPhotoBodyWithLimit, PlaywrightAdapter, browserLaunchOptions } from '../dist/adapter/playwright.js';
 
 test('fixture adapter decodes windows-1251 bytes and records requested URLs', async () => {
   const adapter = new FixtureAdapter({ 'https://fake.test/search': new URL('./fixtures/search-windows-1251.html', import.meta.url) });
@@ -45,17 +45,33 @@ test('browser page limit preserves 20-page default and rejects invalid configure
   assert.doesNotThrow(() => new PlaywrightAdapter({ maxPages: 5 }));
 });
 
-test('empty and whitespace desktop environment values use defaults', () => {
+test('empty browser executable selects the Chrome channel rather than an executable path', () => {
   const oldData = process.env.IMOTI_DATA_DIR;
   const oldExecutable = process.env.IMOTI_BROWSER_EXECUTABLE;
-  process.env.IMOTI_DATA_DIR = '   ';
-  process.env.IMOTI_BROWSER_EXECUTABLE = ' ';
+  process.env.IMOTI_BROWSER_EXECUTABLE = '';
   try {
-    const adapter = new PlaywrightAdapter();
-    assert.match(adapter.dataDir, /\.imoti-powered-mcp$/);
+    const options = browserLaunchOptions();
+    assert.equal(options.channel, 'chrome');
+    assert.equal('executablePath' in options, false);
   } finally {
     if (oldData === undefined) delete process.env.IMOTI_DATA_DIR; else process.env.IMOTI_DATA_DIR = oldData;
     if (oldExecutable === undefined) delete process.env.IMOTI_BROWSER_EXECUTABLE; else process.env.IMOTI_BROWSER_EXECUTABLE = oldExecutable;
+  }
+});
+
+test('visibility accepts true and 1 case-insensitively and defaults false for other values', () => {
+  const previous = process.env.IMOTI_VISIBLE;
+  try {
+    for (const value of ['true', 'TRUE', 'TrUe', '1']) {
+      process.env.IMOTI_VISIBLE = value;
+      assert.equal(browserLaunchOptions().headless, false, value);
+    }
+    for (const value of ['false', '', 'yes', '0']) {
+      process.env.IMOTI_VISIBLE = value;
+      assert.equal(browserLaunchOptions().headless, true, value);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.IMOTI_VISIBLE; else process.env.IMOTI_VISIBLE = previous;
   }
 });
 

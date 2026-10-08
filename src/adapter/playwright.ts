@@ -10,6 +10,15 @@ export const MIN_REQUEST_DELAY_MS = 2000;
 export const MAX_PHOTO_BYTES = 200_000;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+export function browserLaunchOptions(executablePath = nonEmptyEnvironmentValue(process.env.IMOTI_BROWSER_EXECUTABLE)) {
+  return {
+    headless: !['true', '1'].includes(process.env.IMOTI_VISIBLE?.trim().toLowerCase() ?? ''),
+    ...(executablePath ? { executablePath } : { channel: 'chrome' }),
+    userAgent: USER_AGENT,
+    locale: 'bg-BG',
+  };
+}
+
 export function hasProtectiveScreen(status: number, title: string, body: string): boolean {
   return status === 403 || /just a moment/i.test(title) || (body.length < 10_000 && /cloudflare|captcha/i.test(body));
 }
@@ -176,12 +185,7 @@ export class PlaywrightAdapter implements SiteAdapter {
       const profile = join(this.dataDir, 'profile');
       await mkdir(profile, { recursive: true });
       const executablePath = nonEmptyEnvironmentValue(this.options.executablePath) ?? nonEmptyEnvironmentValue(process.env.IMOTI_BROWSER_EXECUTABLE);
-      return chromium.launchPersistentContext(profile, {
-        headless: !['true', '1'].includes(process.env.IMOTI_VISIBLE?.trim().toLowerCase() ?? ''),
-        ...(executablePath ? { executablePath } : { channel: 'chrome' }),
-        userAgent: USER_AGENT,
-        locale: 'bg-BG',
-      });
+      return chromium.launchPersistentContext(profile, browserLaunchOptions(executablePath));
     })();
     return this.contextPromise;
   }
