@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
+import { dataDirectory, nonEmptyEnvironmentValue } from './environment.js';
 import * as z from 'zod/v4';
 import { VERSION } from './version.js';
 import type { SiteAdapter } from './adapter/types.js';
@@ -30,7 +30,7 @@ export interface ServerDependencies {
 }
 
 export function createServer(deps: ServerDependencies = {}): McpServer {
-  const dataDir = deps.dataDir ?? process.env.IMOTI_DATA_DIR ?? `${homedir()}/.imoti-powered-mcp`;
+  const dataDir = nonEmptyEnvironmentValue(deps.dataDir) ?? dataDirectory();
   const defaultSearchPages = configuredSearchLimit('IMOTI_SEARCH_MAX_PAGES', DEFAULT_SEARCH_MAX_PAGES);
   const defaultSearchResults = configuredSearchLimit('IMOTI_SEARCH_MAX_RESULTS', DEFAULT_SEARCH_MAX_RESULTS);
   const searchToolCriteriaSchema = searchCriteriaSchema.extend({ maxPages: z.number().int().min(1).max(MAX_SEARCH_MAX_PAGES).default(defaultSearchPages) });

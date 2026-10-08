@@ -1,8 +1,8 @@
 import type { MunicipalFeature, TransitSchedule, TransitStop, WalkingRoute } from '../area/types.js';
 import type { MunicipalLocationDatasets } from '../area/location.js';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { dataDirectory } from '../environment.js';
 import { inflateRawSync } from 'node:zlib';
 
 export interface SofiaDataAdapter {
@@ -123,7 +123,7 @@ export class LocalSofiaDataAdapter implements SofiaDataAdapter {
   readonly #cacheMaxAgeMs: number;
 
   constructor(options: LocalSofiaDataAdapterOptions = {}) {
-    this.#cache = options.cache ?? fileCache(options.dataDirectory ?? process.env.IMOTI_DATA_DIR ?? join(homedir(), '.imoti-powered-mcp'));
+    this.#cache = options.cache ?? fileCache(options.dataDirectory ?? dataDirectory());
     this.#fetchStops = options.fetchStops ?? fetchOfficialStops;
     this.#now = options.now ?? (() => new Date());
     this.#fetchMunicipalData = options.fetchMunicipalData ?? fetchMunicipalData;

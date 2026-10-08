@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { chromium } from 'playwright-core';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
-import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, readPhotoBodyWithLimit, PlaywrightAdapter } from '../dist/adapter/playwright.js';
+import { hasProtectiveScreen, requestDelay, assertPageCapacity, isAllowedPhotoReference, fetchPhotosWithLimit, readPhotoBodyWithLimit, PlaywrightAdapter, browserLaunchOptions } from '../dist/adapter/playwright.js';
 
 test('fixture adapter decodes windows-1251 bytes and records requested URLs', async () => {
   const adapter = new FixtureAdapter({ 'https://fake.test/search': new URL('./fixtures/search-windows-1251.html', import.meta.url) });
@@ -43,6 +46,84 @@ test('browser page limit preserves 20-page default and rejects invalid configure
   assert.doesNotThrow(() => new PlaywrightAdapter());
   for (const maxPages of [0, 21, 1.5]) assert.throws(() => new PlaywrightAdapter({ maxPages }), /maxPages/);
   assert.doesNotThrow(() => new PlaywrightAdapter({ maxPages: 5 }));
+});
+
+test('empty browser executable selects the Chrome channel rather than an executable path', () => {
+  const oldData = process.env.IMOTI_DATA_DIR;
+  const oldExecutable = process.env.IMOTI_BROWSER_EXECUTABLE;
+  process.env.IMOTI_BROWSER_EXECUTABLE = '';
+  try {
+    const options = browserLaunchOptions();
+    assert.equal(options.channel, 'chrome');
+    assert.equal('executablePath' in options, false);
+  } finally {
+    if (oldData === undefined) delete process.env.IMOTI_DATA_DIR; else process.env.IMOTI_DATA_DIR = oldData;
+    if (oldExecutable === undefined) delete process.env.IMOTI_BROWSER_EXECUTABLE; else process.env.IMOTI_BROWSER_EXECUTABLE = oldExecutable;
+  }
+});
+
+test('persistent context launches in the temporary home profile with an empty browser executable', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'imoti-browser-home-'));
+  const previous = Object.fromEntries(['HOME', 'IMOTI_DATA_DIR', 'IMOTI_BROWSER_EXECUTABLE', 'IMOTI_VISIBLE'].map(name => [name, process.env[name]]));
+  let adapter;
+  t.after(async () => {
+    try { await adapter?.close(); }
+    finally {
+      t.mock.restoreAll();
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name]; else process.env[name] = value;
+      }
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+  process.env.HOME = home;
+  process.env.IMOTI_DATA_DIR = '';
+  process.env.IMOTI_BROWSER_EXECUTABLE = '';
+  process.env.IMOTI_VISIBLE = 'false';
+  const url = 'https://fake.test/browser-launch';
+  const html = '<html><title>Synthetic page</title><body>Local test content</body></html>';
+  const launches = [];
+  t.mock.method(chromium, 'launchPersistentContext', async (profile, options) => {
+    launches.push({ profile, options });
+    return {
+      newPage: async () => ({
+        goto: async () => ({ status: () => 200 }),
+        content: async () => html,
+        title: async () => 'Synthetic page',
+        url: () => url,
+        close: async () => {},
+      }),
+      close: async () => {},
+    };
+  });
+
+  adapter = new PlaywrightAdapter();
+  const page = await adapter.fetchPage(url);
+  assert.equal(page.html, html);
+  assert.equal(launches.length, 1);
+  const [{ profile, options }] = launches;
+  assert.equal(profile, join(home, '.imoti-powered-mcp', 'profile'));
+  assert.equal((await stat(profile)).isDirectory(), true);
+  assert.equal(options.channel, 'chrome');
+  assert.equal('executablePath' in options, false);
+  assert.equal(options.headless, true);
+  assert.equal(options.locale, 'bg-BG');
+});
+
+test('visibility accepts true and 1 case-insensitively and defaults false for other values', () => {
+  const previous = process.env.IMOTI_VISIBLE;
+  try {
+    for (const value of ['true', 'TRUE', 'TrUe', '1']) {
+      process.env.IMOTI_VISIBLE = value;
+      assert.equal(browserLaunchOptions().headless, false, value);
+    }
+    for (const value of ['false', '', 'yes', '0']) {
+      process.env.IMOTI_VISIBLE = value;
+      assert.equal(browserLaunchOptions().headless, true, value);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.IMOTI_VISIBLE; else process.env.IMOTI_VISIBLE = previous;
+  }
 });
 
 test('photo references allow HTTPS imotstatic and cdn image hosts only', () => {

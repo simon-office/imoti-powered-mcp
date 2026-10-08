@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, access } from 'node:fs/promises';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,8 +12,9 @@ import { VERSION } from '../src/version.ts';
 import { FixtureAdapter } from '../dist/adapter/fixture.js';
 import { ProtectiveScreenError } from '../dist/adapter/types.js';
 import { openStorage } from '../dist/storage/index.js';
-import { FixtureSofiaDataAdapter } from '../dist/adapter/sofia-data.js';
+import { FixtureSofiaDataAdapter, LocalSofiaDataAdapter } from '../dist/adapter/sofia-data.js';
 import { parseSearchResults } from '../dist/parsers/search.js';
+import { PlaywrightAdapter } from '../dist/adapter/playwright.js';
 
 async function withClient(server, fn) {
   const client = new Client({ name: 'test-client', version: '1.0.0' });
@@ -1481,6 +1482,37 @@ test('server_info resolves the user home when HOME is unset', async () => {
     else process.env.HOME = previousHome;
     if (previousDataDir === undefined) delete process.env.IMOTI_DATA_DIR;
     else process.env.IMOTI_DATA_DIR = previousDataDir;
+  }
+});
+
+test('empty data directory uses the temporary home for server info, database, profile, and Sofia caches', async () => {
+  const previousHome = process.env.HOME;
+  const previousDataDir = process.env.IMOTI_DATA_DIR;
+  const home = await mkdtemp(join(tmpdir(), 'imoti-desktop-home-'));
+  const dataDir = join(home, '.imoti-powered-mcp');
+  process.env.HOME = home;
+  process.env.IMOTI_DATA_DIR = '';
+  const storage = openStorage();
+  const adapter = new PlaywrightAdapter();
+  try {
+    assert.equal(adapter.dataDir, dataDir);
+    await access(join(dataDir, 'imoti.db'));
+    await withClient(createServer({ storage }), async client => {
+      const info = await client.callTool({ name: 'server_info', arguments: {} });
+      assert.equal(info.structuredContent.dataDir, dataDir);
+    });
+    const cache = new LocalSofiaDataAdapter({
+      fetchMunicipalData: async () => ({ addressesZip: new ArrayBuffer(0), districtsText: JSON.stringify({ type: 'FeatureCollection', features: [] }) }),
+      unzipAddresses: () => 'rn;region;settlement;lareaunit;block;street;streetnum;entrance;n;e\n1;A;гр. София;;;ул. Тест;;;42.5;23.5',
+    });
+    await cache.getMunicipalLocations();
+    await access(join(dataDir, 'sofia-addresses.json'));
+    await access(join(dataDir, 'sofia-districts.json'));
+  } finally {
+    storage.close();
+    await rm(home, { recursive: true, force: true });
+    if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+    if (previousDataDir === undefined) delete process.env.IMOTI_DATA_DIR; else process.env.IMOTI_DATA_DIR = previousDataDir;
   }
 });
 
