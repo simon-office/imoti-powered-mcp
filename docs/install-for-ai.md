@@ -16,7 +16,7 @@ Expected: Node.js 24 or newer, npm 11 (or compatible npm supplied with Node), an
 
 Check for a browser executable. A browser is for live searches, not for build or install.
 
-macOS: check both standard application locations and the executable on PATH:
+macOS: check both standard application locations and the executable on PATH. A detected Google Chrome app is sufficient even when the PATH `command -v` chain exits 1:
 
 ```sh
 test -d "/Applications/Google Chrome.app" && echo "Google Chrome app found"
@@ -72,6 +72,8 @@ Expected: dependency install and build exit successfully; each validation report
 
 Register this exact checkout as a marketplace:
 
+Ask the user for consent before this command: `claude plugin marketplace add` writes a user setting.
+
 ```sh
 claude plugin marketplace add "$PWD"
 ```
@@ -84,7 +86,7 @@ claude plugin install imoti-powered-mcp@imoti-powered-mcp
 
 The local marketplace source is keyed to its version, so after updating the checkout use the update procedure below; keep the checkout at the same path so Claude Code can find that source.
 
-Ask the user to restart Claude Code; wait for them to confirm the restart before verification.
+The plugin's `property-search` skill loads with the plugin. An AI assistant cannot restart Claude Code. Restart is relevant only to an already-open session; it is not needed for verification from a new process.
 
 Primary verification, without requiring a logged-in Claude Code session:
 
@@ -92,7 +94,9 @@ Primary verification, without requiring a logged-in Claude Code session:
 claude mcp list
 ```
 
-Expected: `plugin:imoti-powered-mcp:imoti … ✓ Connected` and this is the only imoti entry. If it is absent, duplicated, or not connected, stop and inspect the reported status instead of installing duplicates. Restarting Claude Code is the user's action; ask them to restart, then rerun the list command.
+Expected: `plugin:imoti-powered-mcp:imoti … ✓ Connected` and this is the only imoti entry. If it is absent, duplicated, or not connected, stop and inspect the reported status instead of installing duplicates.
+
+Run `claude mcp list` from a new process after installation/update. For a session already open while the plugin changed, the user may need to restart Claude Code for that session to reload it.
 
 As a second check only in a logged-in Claude Code session, ask Claude to call `server_info`; a successful response includes server version and absolute data directory. This second check does not replace `claude mcp list`. Avoid duplicate MCP registrations; the project intentionally has no root `.mcp.json` server configuration.
 
@@ -111,23 +115,23 @@ claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp
 claude plugin install imoti-powered-mcp@imoti-powered-mcp
 ```
 
-Ask the user to restart Claude Code; wait for them to confirm the restart before verification. Verify afterward with `claude mcp list` as above. If the checkout path changes, the registered local marketplace source may no longer resolve; retain the original path or ask the user to deliberately re-register the new path.
+`claude plugin list` can still show the same version for a same-version update. Verify the installed copy by comparing this plugin's `gitCommitSha` in `~/.claude/plugins/installed_plugins.json` (or `$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json` when set) with `git rev-parse HEAD` in the updated checkout. Verify the server with `claude mcp list` from a new process. An AI assistant cannot restart Claude Code; restart only matters if an already-open session needs to reload the plugin. If the checkout path changes, the registered local marketplace source may no longer resolve; retain the original path or ask the user to deliberately re-register the new path.
 
 ## Claude Desktop alternatives
 
 ### MCPB extension
 
-Download the versioned `.mcpb` asset from this project's GitHub Releases page (the release assets are published there). Install it in Claude Desktop via **Settings → Extensions → Advanced settings → Install Extension**, selecting that asset. Claude Desktop's bundled/built-in Node runs the `.mcpb`; a separate Node executable setting is not required for this package. Ask before the user confirms the installation. Check the extension's connected status in **Settings → Extensions**; optionally call `server_info` from a logged-in chat.
+Download `imoti-powered-mcp-<version>.mcpb` from https://github.com/simon-office/imoti-powered-mcp/releases, or build locally with `npm run package:release`. Install it in Claude Desktop via **Settings → Extensions → Advanced settings → Install Extension**, selecting that asset. Claude Desktop's bundled/built-in Node runs the `.mcpb`; a separate Node executable setting is not required for this package. Ask before the user confirms the installation. Check the extension's connected status in **Settings → Extensions**; optionally call `server_info` from a logged-in chat. Do not install the MCPB and also add manual MCP configuration; that creates two servers.
 
 ### Upload the search skill
 
-Download the versioned `property-search-skill-<version>.zip` asset from this project's GitHub release. In Claude Desktop, open **Customize → Skills → Upload skill**, upload the ZIP (it contains `SKILL.md` at its root), enable it, and verify it appears in the Skills list. The canonical instructions are [`skills/property-search/SKILL.md`](../skills/property-search/SKILL.md).
+Download `property-search-skill-<version>.zip` from https://github.com/simon-office/imoti-powered-mcp/releases, or build locally with `npm run package:release`. In Claude Desktop, open **Customize → Skills → Upload skill**, upload the ZIP (it contains `SKILL.md` at its root), enable it, and verify it appears in the Skills list. The canonical instructions are [`skills/property-search/SKILL.md`](../skills/property-search/SKILL.md). The skill alone has no tools and requires the MCP server (MCPB or manual config) for property tools.
 
 Follow that skill's criteria, bounded-search, evidence, and uncertainty guidance when using the property tools.
 
 ### Manual MCP configuration
 
-Use this only if MCPB installation is unsuitable. Build the project first. Before editing, ask the user for consent and make a backup first: back up `claude_desktop_config.json`. Find the absolute Node executable path with `which node` (or the platform's equivalent) and confirm `node --version` is 24+. Replace both example paths below with absolute paths; retain the warning flag. `IMOTI_DATA_DIR` is optional and should point outside the checkout.
+Use this only if MCPB installation is unsuitable. Build the project first. Do not use manual configuration alongside the MCPB, as that creates two servers. Before editing, ask the user for consent and make a backup first: back up `claude_desktop_config.json`. Find the absolute Node executable path with `which node` (or the platform's equivalent) and confirm `node --version` is 24+. Replace both example paths below with absolute paths; retain the warning flag. `IMOTI_DATA_DIR` is optional and should point outside the checkout. Configuration paths are macOS `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows `%APPDATA%\Claude\claude_desktop_config.json`, and Linux `~/.config/Claude/claude_desktop_config.json`.
 
 ```json
 {
@@ -141,7 +145,7 @@ Use this only if MCPB installation is unsuitable. Build the project first. Befor
 }
 ```
 
-Merge the entry into the existing `mcpServers`; do not replace unrelated servers. After the user-approved edit, ask the user to fully quit Claude Desktop and reopen it; wait for their confirmation. Check connection status in **Settings → Extensions**. For Windows, use absolute Windows paths and JSON-escaped backslashes. Keep user data outside the checkout.
+Merge the entry into the existing `mcpServers`; do not replace unrelated servers. After the user-approved edit, ask the user to fully quit Claude Desktop and reopen it; wait for their confirmation. Check connection status in **Settings → Extensions**. For Windows, use absolute Windows paths and JSON-escaped backslashes. Keep user data outside the checkout. The server data directory defaults to `~/.imoti-powered-mcp`; to change it for Claude Code, set `IMOTI_DATA_DIR` in the environment that starts Claude Code so the plugin server inherits it. Set `IMOTI_BROWSER_EXECUTABLE` if the default Chrome channel is unavailable, for example `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
 
 ## Troubleshooting and safe stopping
 

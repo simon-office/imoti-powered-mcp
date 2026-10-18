@@ -20,12 +20,12 @@ function assertOrdered(text, patterns, message) {
 function assertConsentAndRestart(doc) {
   const install = section(doc, '## Claude Code: clone, build, validate, and install');
   assertOrdered(install, [
-    /Ask for the user's consent before the following user-scope installation:/,
+    /Ask the user for consent before this command: `claude plugin marketplace add` writes a user setting\./,
+    /claude plugin marketplace add "\$PWD"/,
     /claude plugin install imoti-powered-mcp@imoti-powered-mcp/,
-    /Ask the user to restart Claude Code; wait for them to confirm the restart before verification\./,
     /Primary verification, without requiring a logged-in Claude Code session:/,
     /```sh\nclaude mcp list\n```/,
-  ], 'fresh plugin installation requires consent and a user restart before verification');
+  ], 'fresh plugin installation requires consent before marketplace changes and verifies in a new process');
 
   const update = section(doc, '## Update an existing checkout and plugin');
   assertOrdered(update, [
@@ -33,8 +33,8 @@ function assertConsentAndRestart(doc) {
     /```sh\ngit pull/,
     /claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp/,
     /claude plugin install imoti-powered-mcp@imoti-powered-mcp/,
-    /Ask the user to restart Claude Code; wait for them to confirm the restart before verification\./,
-    /Verify afterward with `claude mcp list`/,
+    /gitCommitSha[\s\S]*?git rev-parse HEAD/,
+    /claude mcp list` from a new process/,
   ], 'plugin updates require consent before changes and a user restart before verification');
 
   const manual = section(doc, '### Manual MCP configuration');
@@ -55,14 +55,10 @@ test('AI install instructions place consent and user-confirmed restart before th
 test('safety assertions reject late consent or restart even when all phrases remain present', async (t) => {
   const doc = await readFile(new URL('../docs/install-for-ai.md', import.meta.url), 'utf8');
   for (const [name, heading, instruction] of [
-    ['fresh install consent', '## Claude Code: clone, build, validate, and install',
-      "Ask for the user's consent before the following user-scope installation:"],
-    ['fresh install restart', '## Claude Code: clone, build, validate, and install',
-      'Ask the user to restart Claude Code; wait for them to confirm the restart before verification.'],
+    ['marketplace add consent', '## Claude Code: clone, build, validate, and install',
+      'Ask the user for consent before this command: `claude plugin marketplace add` writes a user setting.'],
     ['update consent', '## Update an existing checkout and plugin',
       'Ask for user consent before uninstall/reinstall because these are user-scope plugin changes.'],
-    ['update restart', '## Update an existing checkout and plugin',
-      'Ask the user to restart Claude Code; wait for them to confirm the restart before verification.'],
     ['Desktop consent and backup', '### Manual MCP configuration',
       'Before editing, ask the user for consent and make a backup first: back up `claude_desktop_config.json`.'],
     ['Desktop restart', '### Manual MCP configuration',
@@ -81,10 +77,9 @@ test('safety assertions reject late consent or restart even when all phrases rem
 test('safety assertions reject contradictory consent or assistant-performed restart instructions', async (t) => {
   const doc = await readFile(new URL('../docs/install-for-ai.md', import.meta.url), 'utf8');
   for (const [name, original, contradiction] of [
-    ['install before consent', "Ask for the user's consent before", "Ask for the user's consent after"],
+    ['marketplace before consent', 'Ask the user for consent before this command:', 'Ask the user for consent after this command:'],
     ['update before consent', 'Ask for user consent before uninstall/reinstall', 'Ask for user consent after uninstall/reinstall'],
     ['edit before consent', 'Before editing, ask the user for consent', 'After editing, ask the user for consent'],
-    ['assistant restarts Code', 'Ask the user to restart Claude Code;', 'The assistant must restart Claude Code;'],
     ['assistant restarts Desktop', 'ask the user to fully quit Claude Desktop and reopen it;', 'the assistant must fully quit Claude Desktop and reopen it;'],
   ]) {
     await t.test(name, () => {

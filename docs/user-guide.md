@@ -5,7 +5,7 @@ This guide covers the local plugin in Claude Code CLI, Claude Desktop's Code tab
 ## Prerequisites and checks
 
 - Node.js **24 or newer** and npm. Check with `node --version` and `npm --version`; if Node reports a version below `v24`, install a current Node 24+ release and reopen your terminal before installing/building.
-- An installed Chrome or Chromium browser for live searches. `playwright-core` does not download a browser. Check that Chrome/Chromium starts on your system; if it is installed in a nonstandard location, set `IMOTI_BROWSER_EXECUTABLE` to its absolute executable path.
+- An installed Chrome or Chromium browser for live searches. `playwright-core` does not download a browser. The default Chrome channel is used when available; if it is unavailable, set `IMOTI_BROWSER_EXECUTABLE` to the absolute executable path, for example `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
 - Claude Code is needed for the CLI and Code-tab routes. Claude Desktop is needed for either Desktop route.
 
 From a repository checkout, install the locked dependencies and compile the server:
@@ -31,7 +31,7 @@ claude plugin marketplace add "$PWD"
 claude plugin install imoti-powered-mcp@imoti-powered-mcp
 ```
 
-The marketplace-add command must complete successfully before you install the plugin; if it reports an error, resolve that first rather than proceeding. This procedure was tested with Claude Code 2.1.76. Restart Claude Code after installation. Verify from a terminal with `claude mcp list` (this check works without logging in): confirm `plugin:imoti-powered-mcp:imoti … ✓ Connected` is the only `imoti` entry. Any second `imoti` entry is a duplicate to remove; for example, a project-scoped entry left over from an old root `.mcp.json` is a duplicate. As an optional check in a logged-in Claude Code session, ask the plugin to call `server_info`. Try: “Find a two-bedroom apartment for sale in Sofia up to €220,000.” The plugin translates this to a three-room search (rooms include the living room) and explains the evidence and limits. This persistent route uses the marketplace manifest; `claude --plugin-dir .` is a temporary per-session alternative when run from the built checkout.
+The marketplace-add command changes a user setting; obtain consent before running it. It must complete successfully before you install the plugin; if it reports an error, resolve that first rather than proceeding. This procedure was tested with Claude Code 2.1.76. The plugin's `property-search` skill loads with the plugin. Verify from a new terminal process with `claude mcp list` (this check works without logging in): confirm `plugin:imoti-powered-mcp:imoti … ✓ Connected` is the only `imoti` entry. Restart Claude Code only when an already-open Claude Code session needs to reload; it is not required to run this new-process check. Any second `imoti` entry is a duplicate to remove; for example, a project-scoped entry left over from an old root `.mcp.json` is a duplicate. As an optional check in a logged-in Claude Code session, ask the plugin to call `server_info`. Try: “Find a two-bedroom apartment for sale in Sofia up to €220,000.” The plugin translates this to a three-room search (rooms include the living room) and explains the evidence and limits. This persistent route uses the marketplace manifest; `claude --plugin-dir .` is a temporary per-session alternative when run from the built checkout.
 
 ### Update or remove the CLI plugin
 
@@ -46,7 +46,7 @@ claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp
 claude plugin install imoti-powered-mcp@imoti-powered-mcp
 ```
 
-`claude plugin update` may report success without refreshing the cached copy when the plugin is the same version; uninstalling and reinstalling forces Claude Code to load the updated checkout. Keep the checkout path unchanged: do not move or rename it because the marketplace points to that path. To remove the plugin, run `claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp`, then remove its local marketplace with `claude plugin marketplace remove imoti-powered-mcp`. Deleting the checkout alone does not uninstall the registered plugin.
+`claude plugin list` can still show the same version after a same-version update, because it may show the cached copy's version metadata. Confirm the installed copy's commit SHA instead: compare `gitCommitSha` for this plugin in `~/.claude/plugins/installed_plugins.json` (or `$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json` when that variable is set) with `git rev-parse HEAD` in the updated checkout. Keep the checkout path unchanged: do not move or rename it because the marketplace points to that path. To remove the plugin, run `claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp`, then remove its local marketplace with `claude plugin marketplace remove imoti-powered-mcp`. Deleting the checkout alone does not uninstall the registered plugin.
 
 ## Claude Desktop Code tab
 
@@ -56,7 +56,7 @@ Update by rebuilding the checkout and refreshing the local marketplace as in the
 
 ## Claude Desktop chat
 
-Get the release assets from the GitHub release tagged `v<version>`, or build both archives from a clone after installing dependencies:
+Get the release assets from the GitHub release tagged `v<version>` at https://github.com/simon-office/imoti-powered-mcp/releases (`imoti-powered-mcp-<version>.mcpb` and `property-search-skill-<version>.zip`), or build both archives from a clone after installing dependencies:
 
 ```sh
 npm ci --include=dev
@@ -73,7 +73,7 @@ To update, rebuild and install the newly generated `.mcpb` using Desktop's exten
 
 ### Upload the property-search skill ZIP
 
-Use Desktop's skill management/upload interface to upload `property-search-skill-<version>.zip` and enable the skill. It teaches the host how to formulate property searches, but **does not install the MCP server**. For actual property tools, also install the `.mcpb` or configure the manual server below. Test a request and check that the skill is enabled and the MCP server is connected.
+Use Desktop's skill management/upload interface to upload `property-search-skill-<version>.zip` and enable the skill. It teaches the host how to formulate property searches, but the skill alone has no tools and **does not install the MCP server**. For actual property tools, also install the `.mcpb` or configure the manual server below. Test a request and check that the skill is enabled and the MCP server is connected. Do not install the MCPB and add the manual server configuration together: that registers two servers.
 
 To update, upload the newly generated ZIP and replace/disable the old skill version using Desktop's skill controls. To remove, disable and delete the skill there. Skill-management labels depend on the Desktop version.
 

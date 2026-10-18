@@ -45,10 +45,10 @@ test('user guide documents reliable CLI verification, update, and data directory
 
   const cliInstall = guide.slice(guide.indexOf('## Claude Code CLI: persistent local marketplace install'), guide.indexOf('### Update or remove the CLI plugin'));
   assert.match(cliInstall,
-    /marketplace-add command must complete successfully before you install the plugin; if it reports an error, resolve that first rather than proceeding/,
-    'plugin installation should proceed only after marketplace add succeeds, and stop on failure');
+    /marketplace-add command changes a user setting; obtain consent before running it\.[\s\S]*?must complete successfully before you install the plugin; if it reports an error, resolve that first rather than proceeding/,
+    'plugin installation requires consent before marketplace settings change and must stop if marketplace add fails');
 
-  const verification = cliInstall.slice(cliInstall.indexOf('Verify from a terminal'), cliInstall.indexOf('Try:'));
+  const verification = cliInstall.slice(cliInstall.indexOf('Verify from a new terminal process'), cliInstall.indexOf('Try:'));
   assert.match(verification, /confirm `plugin:imoti-powered-mcp:imoti … ✓ Connected`/,
     'verification should name the connected imoti entry to confirm');
   assert.match(verification, /`plugin:imoti-powered-mcp:imoti … ✓ Connected` is the only `imoti` entry/,
@@ -70,10 +70,19 @@ test('user guide documents reliable CLI verification, update, and data directory
   }
 });
 
+test('user guide documents plugin skill, environment defaults, and installed commit verification', () => {
+  for (const phrase of [
+    '`~/.imoti-powered-mcp`', 'IMOTI_DATA_DIR', 'environment that starts Claude Code',
+    'IMOTI_BROWSER_EXECUTABLE', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '`property-search` skill', 'loads with the plugin', 'claude plugin list', 'same version',
+    'gitCommitSha', 'installed_plugins.json', 'git rev-parse HEAD', '$CLAUDE_CONFIG_DIR',
+  ]) assert.ok(guide.includes(phrase), `user guide should document ${phrase}`);
+});
+
 test('user guide documents packaged assets and a reproducible manual Desktop setup', () => {
   const desktop = guide.slice(guide.indexOf('## Claude Desktop chat'), guide.indexOf('## Using the tools and memory'));
   for (const phrase of [
-    'GitHub release tagged `v<version>`', 'npm run package:release', '`release/`',
+    'GitHub release tagged `v<version>`', 'https://github.com/simon-office/imoti-powered-mcp/releases', 'npm run package:release', '`release/`',
     'imoti-powered-mcp-0.2.0.mcpb', 'property-search-skill-0.2.0.zip',
     'built-in Node', 'do not need to install Node separately',
     'Back up', 'which node', 'Node 24', '--disable-warning=ExperimentalWarning',
