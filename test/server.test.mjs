@@ -1485,13 +1485,13 @@ test('server_info resolves the user home when HOME is unset', async () => {
   }
 });
 
-test('empty data directory uses the temporary home for server info, database, profile, and Sofia caches', async () => {
+test('whitespace-only data directory uses the temporary home for server info, database, profile, and Sofia caches', async () => {
   const previousHome = process.env.HOME;
   const previousDataDir = process.env.IMOTI_DATA_DIR;
   const home = await mkdtemp(join(tmpdir(), 'imoti-desktop-home-'));
   const dataDir = join(home, '.imoti-powered-mcp');
   process.env.HOME = home;
-  process.env.IMOTI_DATA_DIR = '';
+  process.env.IMOTI_DATA_DIR = '   ';
   const storage = openStorage();
   const adapter = new PlaywrightAdapter();
   try {

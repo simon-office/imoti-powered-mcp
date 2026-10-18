@@ -48,10 +48,10 @@ test('browser page limit preserves 20-page default and rejects invalid configure
   assert.doesNotThrow(() => new PlaywrightAdapter({ maxPages: 5 }));
 });
 
-test('empty browser executable selects the Chrome channel rather than an executable path', () => {
+test('whitespace-only browser executable selects the Chrome channel rather than an executable path', () => {
   const oldData = process.env.IMOTI_DATA_DIR;
   const oldExecutable = process.env.IMOTI_BROWSER_EXECUTABLE;
-  process.env.IMOTI_BROWSER_EXECUTABLE = '';
+  process.env.IMOTI_BROWSER_EXECUTABLE = '   ';
   try {
     const options = browserLaunchOptions();
     assert.equal(options.channel, 'chrome');
