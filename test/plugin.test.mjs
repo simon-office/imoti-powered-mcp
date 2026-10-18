@@ -19,6 +19,7 @@ test('plugin manifest retains the task 2 required fields', async () => {
   assert.equal(typeof manifest.description, 'string');
   assert.ok(manifest.description.length > 0);
   assert.deepEqual(manifest.author, { name: 'Simon Office' });
+  assert.deepEqual(manifest.compatibility, { platforms: ['darwin', 'linux', 'win32'], runtimes: { node: '>=24.0.0' } });
   assert.deepEqual(manifest.mcpServers, {
     imoti: {
       command: 'node',

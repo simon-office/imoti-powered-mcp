@@ -1,8 +1,8 @@
 import { mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
+import { dataDirectory } from '../environment.js';
 
 export type LocationPrecision = 'exact' | 'street' | 'neighbourhood' | 'unknown';
 export type NoteKind = 'favourite' | 'rejected' | 'viewing' | 'note';
@@ -52,7 +52,7 @@ function stableJson(value: unknown): string {
 }
 
 export function openStorage(path?: string): Storage {
-  const dataDir = process.env.IMOTI_DATA_DIR || join(homedir(), '.imoti-powered-mcp');
+  const dataDir = dataDirectory();
   const dbPath = path ?? join(dataDir, 'imoti.db');
   // DatabaseSync opens synchronously; mkdirSync guarantees its parent exists.
   mkdirSync(dirname(dbPath), { recursive: true });

@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "A conversational assistant for Bulgarian property listings",
   "author": { "name": "Simon Office" },
+  "compatibility": { "platforms": ["darwin", "linux", "win32"], "runtimes": { "node": ">=24.0.0" } },
   "mcpServers": {
     "imoti": {
       "command": "node",

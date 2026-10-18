@@ -1,5 +1,4 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Client, InMemoryTransport as ClientTransport } from '@modelcontextprotocol/client';
 import { InMemoryTransport as ServerTransport } from '@modelcontextprotocol/server';
@@ -10,6 +9,7 @@ import { createServer } from './server.js';
 import { adapterPageLimit } from './cli-limits.js';
 import { configuredSearchLimit, DEFAULT_SEARCH_MAX_PAGES, DEFAULT_SEARCH_MAX_RESULTS } from './search/criteria.js';
 import { openStorage } from './storage/index.js';
+import { dataDirectory } from './environment.js';
 
 const usage = `Usage:
   npm run search -- [--deal sale|rent] [--district NAME ...] [--type TYPE ...] [--rooms N] [--max-price N] [--max-results N] [--max-pages N] [--price-min N] [--price-max N] [--area-min N] [--area-max N] [--fixtures DIR] [--visible]
@@ -67,7 +67,7 @@ async function main() {
   let parsed;
   try { parsed = parse(process.argv.slice(2)); }
   catch (error) { process.stderr.write(`${(error as Error).message}\n${usage}\n`); process.exitCode = 2; return; }
-  const dataDir = process.env.IMOTI_DATA_DIR ?? join(homedir(), '.imoti-powered-mcp');
+  const dataDir = dataDirectory();
   let adapter;
   try {
     if (parsed.options.visible) process.env.IMOTI_VISIBLE = '1';

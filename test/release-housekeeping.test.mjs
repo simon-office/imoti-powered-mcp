@@ -31,8 +31,8 @@ test('release metadata uses 0.2.0 and includes npm discovery metadata', async ()
   assert.equal(manifest.server.type, 'node');
   assert.equal(manifest.server.entry_point, 'dist/main.js');
   assert.equal(manifest.server.mcp_config.command, 'node');
-  assert.deepEqual(manifest.compatibility, { platforms: ['darwin', 'win32', 'linux'] });
-  assert.equal(manifest.runtime, 'node >=24');
+  assert.deepEqual(manifest.compatibility, { platforms: ['darwin', 'win32', 'linux'], runtimes: { node: '>=24.0.0' } });
+  assert.equal('runtime' in manifest, false);
   assert.deepEqual(manifest.server.mcp_config.args, ['--disable-warning=ExperimentalWarning', '${__dirname}/dist/main.js']);
   const config = manifest.server.mcp_config;
   for (const name of ['IMOTI_VISIBLE', 'IMOTI_BROWSER_EXECUTABLE', 'IMOTI_DATA_DIR']) {
