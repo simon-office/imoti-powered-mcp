@@ -210,6 +210,7 @@ test('municipal cache write failure returns complete prior datasets marked stale
 });
 
 test('local adapter loads and caches both municipal location datasets with their distinct reuse terms', async () => {
+  const now = () => new Date('2026-10-06T12:00:00.000Z');
   const cacheValues = new Map();
   const writes = [];
   const cache = {
@@ -218,7 +219,7 @@ test('local adapter loads and caches both municipal location datasets with their
   };
   const adapter = new LocalSofiaDataAdapter({
     cache,
-    now: () => new Date('2026-10-06T12:00:00.000Z'),
+    now,
     fetchMunicipalData: async () => ({
       addressesZip: new ArrayBuffer(0),
       districtsText: JSON.stringify({ type: 'FeatureCollection', features: [
@@ -228,7 +229,7 @@ test('local adapter loads and caches both municipal location datasets with their
     unzipAddresses: async () => 'rn;region;settlement;lareaunit;block;street;streetnum;entrance;n;e\n1;A;гр. София;;;ул. Примерна;;;42.5;23.5'
   });
   const first = await adapter.getMunicipalLocations();
-  const second = await new LocalSofiaDataAdapter({ cache, fetchMunicipalData: async () => { throw new Error('must use cache'); } }).getMunicipalLocations();
+  const second = await new LocalSofiaDataAdapter({ cache, now, fetchMunicipalData: async () => { throw new Error('must use cache'); } }).getMunicipalLocations();
   assert.deepEqual(second, first);
   assert.deepEqual(writes.sort(), ['sofia-addresses.json', 'sofia-districts.json']);
   assert.equal(first.addresses[0].latitude, 42.5);

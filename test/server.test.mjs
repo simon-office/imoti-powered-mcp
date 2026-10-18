@@ -1516,6 +1516,37 @@ test('whitespace-only data directory uses the temporary home for server info, da
   }
 });
 
+test('empty data directory uses the temporary home for server info, database, profile, and Sofia caches', async () => {
+  const previousHome = process.env.HOME;
+  const previousDataDir = process.env.IMOTI_DATA_DIR;
+  const home = await mkdtemp(join(tmpdir(), 'imoti-desktop-home-'));
+  const dataDir = join(home, '.imoti-powered-mcp');
+  process.env.HOME = home;
+  process.env.IMOTI_DATA_DIR = '';
+  const storage = openStorage();
+  const adapter = new PlaywrightAdapter();
+  try {
+    assert.equal(adapter.dataDir, dataDir);
+    await access(join(dataDir, 'imoti.db'));
+    await withClient(createServer({ storage }), async client => {
+      const info = await client.callTool({ name: 'server_info', arguments: {} });
+      assert.equal(info.structuredContent.dataDir, dataDir);
+    });
+    const cache = new LocalSofiaDataAdapter({
+      fetchMunicipalData: async () => ({ addressesZip: new ArrayBuffer(0), districtsText: JSON.stringify({ type: 'FeatureCollection', features: [] }) }),
+      unzipAddresses: () => 'rn;region;settlement;lareaunit;block;street;streetnum;entrance;n;e\n1;A;гр. София;;;ул. Тест;;;42.5;23.5',
+    });
+    await cache.getMunicipalLocations();
+    await access(join(dataDir, 'sofia-addresses.json'));
+    await access(join(dataDir, 'sofia-districts.json'));
+  } finally {
+    storage.close();
+    await rm(home, { recursive: true, force: true });
+    if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
+    if (previousDataDir === undefined) delete process.env.IMOTI_DATA_DIR; else process.env.IMOTI_DATA_DIR = previousDataDir;
+  }
+});
+
 test('plugin manifests declare the package and stdio server', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   const plugin = JSON.parse(await readFile(new URL('../.claude-plugin/plugin.json', import.meta.url), 'utf8'));
