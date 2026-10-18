@@ -26,3 +26,21 @@ test('AI installation manual links the existing property-search skill and preser
   assert.match(manual, /stop.{0,80}ask the user/i);
   assert.match(manual, /never.{0,60}bypass/i);
 });
+
+test('AI installation manual covers install consent, environment defaults, and installed commit verification', async () => {
+  const manual = await readFile(new URL('../docs/install-for-ai.md', import.meta.url), 'utf8');
+  for (const phrase of [
+    'consent', 'writes a user setting', '`~/.imoti-powered-mcp`', 'environment that starts Claude Code',
+    'IMOTI_BROWSER_EXECUTABLE', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '`property-search` skill', 'loads with the plugin', 'claude plugin list', 'same version',
+    'gitCommitSha', 'installed_plugins.json', 'git rev-parse HEAD', '$CLAUDE_CONFIG_DIR',
+    'macOS', '~/Library/Application Support/Claude/claude_desktop_config.json',
+    '%APPDATA%\\Claude\\claude_desktop_config.json', '~/.config/Claude/claude_desktop_config.json',
+    'two servers', 'no tools', 'npm run package:release',
+  ]) assert.ok(manual.includes(phrase), `AI installation manual should document ${phrase}`);
+  assert.match(manual, /macOS[\s\S]*?Google Chrome app[\s\S]*?command -v[\s\S]*?exits 1/i);
+  assert.match(manual, /cannot restart Claude Code[\s\S]*?new process[\s\S]*?already-open session/i);
+  assert.match(manual, /https:\/\/github\.com\/simon-office\/imoti-powered-mcp\/releases/);
+  assert.match(manual, /imoti-powered-mcp-<version>\.mcpb/);
+  assert.match(manual, /property-search-skill-<version>\.zip/);
+});

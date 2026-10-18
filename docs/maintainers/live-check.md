@@ -9,6 +9,13 @@ checks and request Simon's action to install/select one; do not mark those check
 stop the operation and request Simon's visible, human continuation. For a missing browser or protective screen, request the
 user's action before proceeding. Never automate past a challenge.
 
+Before installation, record Node and npm versions and verify Node compatibility (Node 24+). Check the unset/empty defaults for
+`IMOTI_DATA_DIR` and `IMOTI_BROWSER_EXECUTABLE`: data should resolve under `~/.imoti-powered-mcp`, and browser launch should
+use the default Chrome channel. Confirm the configured executable overrides that channel only when provided; on macOS an
+installed Google Chrome app is sufficient even if PATH lookup fails. Exercise `IMOTI_VISIBLE` unset, empty, `0`/`false`, and
+`1`/`true`; only `1` and `true` (case-insensitive, whitespace-trimmed) should select visible mode. Record observed outcomes
+without recording private paths.
+
 ### Fresh clone and persistent Claude Code marketplace install
 
 In a new temporary directory, use the repository URL and follow these commands:
@@ -33,8 +40,10 @@ then verify the `search_listings` tool was called and its filters/results are sh
 the assistant's prose.
 
 For update verification, update the checkout to the candidate being checked, repeat build, test, validation, marketplace
-registration/install as appropriate, then restart Claude Code and confirm the listed plugin and `server_info` reflect that
-version. For removal verification, run `claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp` and
+registration/install as appropriate, then compare the plugin's `gitCommitSha` in `~/.claude/plugins/installed_plugins.json`
+(or `$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json`) against `git rev-parse HEAD` in the checkout. `claude plugin list`
+may show the same version after a same-version update. Verify the server with `claude mcp list` from a new process; restart
+is relevant only to an already-open Claude Code session. For removal verification, run `claude plugin uninstall imoti-powered-mcp@imoti-powered-mcp` and
 `claude plugin marketplace remove imoti-powered-mcp`; confirm `claude plugin list` no longer lists it. Do not remove the
 owner's user data directory or personal marketplace entries.
 

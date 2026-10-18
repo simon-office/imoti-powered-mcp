@@ -39,3 +39,13 @@ test('stage 6 report includes statuses without carrying identifying data and lin
   assert.match(doc, /report template[\s\S]*?PASS[\s\S]*?FAIL[\s\S]*?NOT CHECKED/i);
   assert.match(doc, /Never include[\s\S]*?listing IDs[\s\S]*?personal/i);
 });
+
+test('stage 6 live check verifies environment defaults, visibility values, runtime, and installed SHA', async () => {
+  const doc = await read('docs/maintainers/live-check.md');
+  for (const phrase of [
+    'IMOTI_DATA_DIR', 'IMOTI_BROWSER_EXECUTABLE', 'default Chrome channel',
+    'IMOTI_VISIBLE', 'gitCommitSha', 'installed_plugins.json', 'git rev-parse HEAD',
+    'Node.js 24', 'empty', 'NOT CHECKED',
+  ]) assert.ok(doc.includes(phrase), `stage 6 live check should include ${phrase}`);
+  assert.match(doc, /IMOTI_VISIBLE[\s\S]*?(?:0|false)[\s\S]*?(?:1|true)/);
+});
